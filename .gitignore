@@ -1,4 +1,6 @@
 /data/*
+/doc/*
 .env
+key.md
 __pycache__/
 *.pyc
