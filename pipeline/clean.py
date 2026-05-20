@@ -25,9 +25,7 @@ import sys
 from pathlib import Path
 from typing import Literal
 
-ROOT = Path(__file__).parent.parent
-DOC_DIR = ROOT / "doc"
-CLEAN_DIR = ROOT / "data" / "cleaned"
+from config import DOC_DIR, CLEAN_DIR
 
 DocSubtype = Literal["regulation", "journal", "thesis"]
 

@@ -21,14 +21,7 @@ from pathlib import Path
 import chromadb
 from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
 
-ROOT = Path(__file__).parent.parent
-VECTORSTORE_DIR = ROOT / "data" / "vectorstore"
-
-MODEL_NAME = "BAAI/bge-large-zh-v1.5"
-COLLECTION_NAME = "powerscoperag"
-
-# BGE instruction prefix — prepend to queries only (not documents)
-_QUERY_PREFIX = "为这个句子生成表示以用于检索相关文章："
+from config import VECTORSTORE_DIR, EMBED_MODEL, COLLECTION_NAME, QUERY_PREFIX
 
 _ef = None
 _collection = None
@@ -40,7 +33,7 @@ def _get_collection() -> chromadb.Collection:
         return _collection
 
     _ef = SentenceTransformerEmbeddingFunction(
-        model_name=MODEL_NAME,
+        model_name=EMBED_MODEL,
         device="cpu",
         normalize_embeddings=True,
     )
@@ -74,7 +67,7 @@ def retrieve(
     where = {"doc_type": doc_type} if doc_type else None
 
     results = collection.query(
-        query_texts=[_QUERY_PREFIX + query],
+        query_texts=[QUERY_PREFIX + query],
         n_results=top_k,
         where=where,
         include=["documents", "metadatas", "distances"],

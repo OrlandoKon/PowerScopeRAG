@@ -23,13 +23,13 @@ import chromadb
 from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
 from tqdm import tqdm
 
-ROOT = Path(__file__).parent.parent
-CHUNKS_FILE = ROOT / "data" / "chunks.jsonl"
-VECTORSTORE_DIR = ROOT / "data" / "vectorstore"
-
-MODEL_NAME = "BAAI/bge-large-zh-v1.5"
-COLLECTION_NAME = "powerscoperag"
-BATCH_SIZE = 64
+from config import (
+    CHUNKS_FILE,
+    VECTORSTORE_DIR,
+    EMBED_MODEL,
+    EMBED_BATCH_SIZE,
+    COLLECTION_NAME,
+)
 
 
 def load_chunks() -> list[dict]:
@@ -46,7 +46,7 @@ def build_collection(chunks: list[dict], reset: bool = False) -> chromadb.Collec
     VECTORSTORE_DIR.mkdir(parents=True, exist_ok=True)
 
     ef = SentenceTransformerEmbeddingFunction(
-        model_name=MODEL_NAME,
+        model_name=EMBED_MODEL,
         device="cpu",
         normalize_embeddings=True,
     )
@@ -83,9 +83,9 @@ def build_collection(chunks: list[dict], reset: bool = False) -> chromadb.Collec
         for c in chunks
     ]
 
-    print(f"Indexing {len(chunks)} chunks in batches of {BATCH_SIZE}...")
-    for start in tqdm(range(0, len(chunks), BATCH_SIZE), unit="batch"):
-        end = start + BATCH_SIZE
+    print(f"Indexing {len(chunks)} chunks in batches of {EMBED_BATCH_SIZE}...")
+    for start in tqdm(range(0, len(chunks), EMBED_BATCH_SIZE), unit="batch"):
+        end = start + EMBED_BATCH_SIZE
         collection.add(
             ids=ids[start:end],
             documents=documents[start:end],
@@ -110,7 +110,7 @@ def main() -> None:
 
     total = collection.count()
     print(f"\n向量库就绪：{total} 条文档 → {VECTORSTORE_DIR}")
-    print(f"Collection: '{COLLECTION_NAME}'  Model: '{MODEL_NAME}'")
+    print(f"Collection: '{COLLECTION_NAME}'  Model: '{EMBED_MODEL}'")
 
 
 if __name__ == "__main__":

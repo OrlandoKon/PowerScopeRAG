@@ -31,18 +31,14 @@ from langchain_text_splitters import (
     RecursiveCharacterTextSplitter,
 )
 
-ROOT = Path(__file__).parent.parent
-CLEAN_DIR = ROOT / "data" / "cleaned"
-CHUNKS_FILE = ROOT / "data" / "chunks.jsonl"
-
-# ── Chunking parameters ───────────────────────────────────────────────────────
-
-CHUNK_SIZE = 500        # characters; Chinese is ~1.5× denser than English tokens
-CHUNK_OVERLAP = 80
-MAX_CHUNK_SIZE = 800    # chunks larger than this are recursively split
-
-# Chinese-aware recursive separators (prefer sentence/clause boundaries)
-RECURSIVE_SEPARATORS = ["\n\n", "\n", "。", "；", "，", " ", ""]
+from config import (
+    CLEAN_DIR,
+    CHUNKS_FILE,
+    CHUNK_SIZE,
+    CHUNK_OVERLAP,
+    MAX_CHUNK_SIZE,
+    RECURSIVE_SEPARATORS,
+)
 
 # ── Subtype detection (mirrors clean.py) ──────────────────────────────────────
 
