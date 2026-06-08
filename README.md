@@ -8,7 +8,7 @@
 
 | 类别 | 数量 | 说明 |
 |------|------|------|
-| 行业标准（regulation） | 6 份 | GB/T 12325、GB/T 15543、GB 50054、GB 50217、GBT 13955、DL/T 2806 等 |
+| 行业标准（regulation） | 7 份 | GB/T 12325、GB/T 15543、GB 50054、GB 50217、GBT 13955、GBT 45418、DL/T 2806 |
 | 期刊论文（journal） | 9 份 | 台区低电压、分布式光伏、储能系统相关研究论文 |
 | **合计** | **665 个分块** | 向量化存储，支持语义检索 |
 
@@ -204,9 +204,36 @@ http://rag.orlando.ink:8000/docs
 conda activate PowerScopeRAG
 ```
 
-### 重新构建知识库（从原始文档开始）
+### 添加新文档
+
+将原始文件（`.pdf` / `.docx` / `.txt` / `.md`）放入对应的 inbox 目录：
+
+```
+doc/inbox/regulations/   ← 行业标准、技术导则
+doc/inbox/paper/         ← 学术论文
+```
+
+然后运行转换脚本，自动输出为 Markdown：
 
 ```bash
+# 增量转换（跳过已转换的文件）
+python pipeline/convert.py
+
+# 强制重新转换全部
+python pipeline/convert.py --force
+
+# 转换单个文件
+python pipeline/convert.py --file doc/inbox/regulations/GB50054.pdf
+```
+
+支持格式：`.pdf`（pymupdf4llm）、`.docx`（python-docx）、`.txt`（自动识别编号标题）、`.md`（直接复制）。
+
+### 重新构建知识库
+
+```bash
+# 0. 格式转换（有新文档时执行）
+python pipeline/convert.py
+
 # 1. 清洗文档
 python pipeline/clean.py
 
@@ -219,6 +246,21 @@ python pipeline/embed.py
 # 重新索引（清空后重建）
 python pipeline/embed.py --reset
 ```
+
+### 检索质量评测
+
+```bash
+# 评测全部 20 题
+python tests/eval.py
+
+# 只测指定题目
+python tests/eval.py --ids Q01 Q06 Q07
+
+# 调整检索数量
+python tests/eval.py --top-k 10
+```
+
+评测报告保存在 `tests/reports/report_YYYYMMDD_HHMMSS.md`。
 
 ### 本地启动 API
 

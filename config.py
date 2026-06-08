@@ -16,6 +16,7 @@ load_dotenv()
 
 ROOT = Path(__file__).parent
 DOC_DIR        = ROOT / "doc"
+INBOX_DIR      = DOC_DIR / "inbox"
 CLEAN_DIR      = ROOT / "data" / "cleaned"
 CHUNKS_FILE    = ROOT / "data" / "chunks.jsonl"
 VECTORSTORE_DIR = ROOT / "data" / "vectorstore"
