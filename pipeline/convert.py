@@ -5,7 +5,7 @@ pipeline/convert.py — 多格式文档转 Markdown
 转换为统一 Markdown，输出到 doc/{paper,regulations}/。
 
 转换工具：
-  .pdf  → pymupdf4llm（保留标题层级、表格，原生支持中文）
+  .pdf  → pymupdf4llm（文字版）；输出 < 200 chars 时自动回退到 RapidOCR（扫描版）
   .docx → python-docx（与 doc/convert_docx_to_md.py 同一套逻辑）
   .txt  → 内置（检测编号章节，添加标题前缀）
   .md   → 直接复制（不做任何转换）
@@ -26,15 +26,74 @@ ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
 from config import DOC_DIR, INBOX_DIR
-SUBDIRS = ("regulations", "paper")
+SUBDIRS = ("regulations", "paper", "datum")
 SUPPORTED_SUFFIXES = {".pdf", ".docx", ".txt", ".md"}
 
 
 # ── PDF → Markdown ────────────────────────────────────────────────────────────
 
+# 文字提取结果低于此阈值时触发 OCR（扫描版 PDF）
+_OCR_FALLBACK_THRESHOLD = 200
+# 替换字符（�）占比超过此值时视为字体乱码，强制触发 OCR
+def _is_garbled(text: str) -> bool:
+    """检测 PDF 字体乱码，两种模式：
+    1. Unicode 替换字符（�）占比 > 2%：明确解码失败
+    2. U+7280-U+72FF 连续游程 ≥ 6：自定义字体把拉丁字母映射到了生僻 CJK 区段
+       （正常中文文本在该区段的连续游程几乎不超过 2）
+    """
+    if not text:
+        return False
+    if text.count("�") / len(text) > 0.02:
+        return True
+    run = 0
+    for ch in text:
+        if 0x7280 <= ord(ch) <= 0x72FF:
+            run += 1
+            if run >= 6:
+                return True
+        else:
+            run = 0
+    return False
+
+
+def _pdf_ocr(src: Path) -> str:
+    """用 RapidOCR 对扫描版 PDF 逐页识别，返回拼接后的纯文本。"""
+    import fitz
+    import numpy as np
+    from rapidocr_onnxruntime import RapidOCR
+
+    ocr = RapidOCR()
+    doc = fitz.open(str(src))
+    pages_text: list[str] = []
+
+    for page in doc:
+        # 渲染为 RGB 图像（2× 缩放保证识别精度）
+        mat = fitz.Matrix(2.0, 2.0)
+        pix = page.get_pixmap(matrix=mat, colorspace=fitz.csRGB)
+        img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(
+            pix.height, pix.width, 3
+        )
+        result, _ = ocr(img)
+        if result:
+            lines = [item[1] for item in result]
+            pages_text.append("\n".join(lines))
+
+    doc.close()
+    return "\n\n".join(pages_text)
+
+
 def pdf_to_md(src: Path) -> str:
     import pymupdf4llm
-    return pymupdf4llm.to_markdown(str(src))
+
+    text = pymupdf4llm.to_markdown(str(src))
+    if len(text.strip()) >= _OCR_FALLBACK_THRESHOLD and not _is_garbled(text):
+        return text
+
+    if _is_garbled(text):
+        print(f"      [OCR] 检测到字体乱码，切换 RapidOCR：{src.name}")
+    else:
+        print(f"      [OCR] 文字提取不足，切换 RapidOCR：{src.name}")
+    return _pdf_ocr(src)
 
 
 # ── DOCX → Markdown ───────────────────────────────────────────────────────────

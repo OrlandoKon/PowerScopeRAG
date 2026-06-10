@@ -220,7 +220,7 @@ def chunk_document(text: str, source: str, subtype: DocSubtype) -> list[dict]:
 
 def main() -> None:
     sources: list[Path] = []
-    for sub in ("regulations", "paper"):
+    for sub in ("regulations", "paper", "datum"):
         d = CLEAN_DIR / sub
         if d.exists():
             sources.extend(sorted(d.glob("*.md")))

@@ -47,8 +47,16 @@ def detect_subtype(text: str, rel_dir: str) -> DocSubtype:
 
 # ── Compiled patterns ─────────────────────────────────────────────────────────
 
-# Regulation: first numbered main section  "1   范围"  or  "1  范围"
-_MAIN_SECTION_RE = re.compile(r"^\d+\s{2,}[一-鿿（\(]")
+# Regulation: first numbered main section.
+# Handles observed forms (1-2 digit section numbers to avoid matching years like 2021):
+#   "1   范围" / "1 范围" / "1范围"  (plain text, various spacing)
+#   "1. 范围"  (period after number, DB1331T series)
+#   "## 1 总则"  (pymupdf4llm markdown heading)
+#   "## **2** 术语"  (bold digit in markdown)
+#   "## 1[范围]"  (brackets around CJK, pymupdf4llm artifact)
+_MAIN_SECTION_RE = re.compile(
+    r"^(?:#{1,3}\s+)?(?:\*{1,2})?\d{1,2}(?:\*{1,2})?[.\s]*[\[一-鿿（\(]"
+)
 
 # 参考文献 heading — handles spaced ("参    考    文    献") and unspaced forms
 _REF_SECTION_RE = re.compile(r"^参\s*考\s*文\s*献\s*[：:﹕]?\s*$")
@@ -141,7 +149,22 @@ def _find_first(lines: list[str], pattern: re.Pattern, after: int = 0) -> int:
 
 # ── Common cleaning pass (applied after type-specific pass) ──────────────────
 
+def _fullwidth_to_ascii(text: str) -> str:
+    """全角 ASCII 字符（U+FF01–U+FF5E）转半角，全角空格转普通空格。"""
+    out = []
+    for ch in text:
+        cp = ord(ch)
+        if 0xFF01 <= cp <= 0xFF5E:
+            out.append(chr(cp - 0xFEE0))
+        elif cp == 0x3000:  # 全角空格 → 普通空格
+            out.append(" ")
+        else:
+            out.append(ch)
+    return "".join(out)
+
+
 def clean_common(text: str) -> str:
+    text = _fullwidth_to_ascii(text)
     lines = text.splitlines()
     out: list[str] = []
     for line in lines:
@@ -316,13 +339,13 @@ def clean_file(src: Path, dst: Path) -> dict:
 
 def main() -> None:
     sources: list[Path] = []
-    for sub in ("regulations", "paper"):
+    for sub in ("regulations", "paper", "datum"):
         d = DOC_DIR / sub
         if d.exists():
             sources.extend(sorted(d.glob("*.md")))
 
     if not sources:
-        print("No .md files found in doc/regulations/ or doc/paper/")
+        print("No .md files found in doc/regulations/, doc/paper/ or doc/datum/")
         sys.exit(1)
 
     total_orig = total_clean = 0
