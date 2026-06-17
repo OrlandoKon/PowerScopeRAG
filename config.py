@@ -41,6 +41,10 @@ QUERY_PREFIX  = "为这个句子生成表示以用于检索相关文章："  # B
 
 DEFAULT_TOP_K = 5   # /ask 和 /retrieve 接口的默认返回数量
 
+# 混合检索 + 精排
+RRF_K        = 60                         # RRF 排名常数
+RERANK_MODEL = "BAAI/bge-reranker-v2-m3"  # Cross-encoder 精排模型
+
 # ── DeepSeek ──────────────────────────────────────────────────────────────────
 
 DEEPSEEK_API_KEY  = os.environ.get("DEEPSEEK_API_KEY", "")

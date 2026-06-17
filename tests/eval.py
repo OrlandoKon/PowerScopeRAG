@@ -44,15 +44,24 @@ def reciprocal_rank(expected: list[str], hits: list[dict]) -> float:
     return 0.0
 
 
-def eval_case(case: dict, top_k: int) -> dict:
-    hits = retrieve(case["question"], top_k=top_k)
+def _hit_score(h: dict) -> float:
+    """Best available score for display (rerank > rrf > distance)."""
+    if "rerank_score" in h:
+        return round(h["rerank_score"], 4)
+    if "rrf_score" in h:
+        return round(h["rrf_score"], 4)
+    return round(h.get("distance", 0.0), 4)
+
+
+def eval_case(case: dict, top_k: int, mode: str = "hybrid+rerank") -> dict:
+    hits = retrieve(case["question"], top_k=top_k, mode=mode)
     return {
         "hit_at_1":  hit_at_k(case["expected_sources"], hits, 1),
         "hit_at_3":  hit_at_k(case["expected_sources"], hits, 3),
         "hit_at_5":  hit_at_k(case["expected_sources"], hits, 5),
         "mrr":       reciprocal_rank(case["expected_sources"], hits),
         "retrieved":  [h["source"] for h in hits[:5]],
-        "distances":  [round(h["distance"], 4) for h in hits[:5]],
+        "distances":  [_hit_score(h) for h in hits[:5]],
     }
 
 
@@ -67,7 +76,7 @@ def _icon(v: bool) -> str:
     return "✅" if v else "❌"
 
 
-def generate_report(cases: list[dict], results: dict, top_k: int, elapsed: float) -> str:
+def generate_report(cases: list[dict], results: dict, top_k: int, elapsed: float, mode: str = "hybrid+rerank") -> str:
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     n = len(cases)
     h1  = sum(results[c["id"]]["hit_at_1"] for c in cases) / n
@@ -78,7 +87,7 @@ def generate_report(cases: list[dict], results: dict, top_k: int, elapsed: float
     lines = [
         "# PowerScopeRAG 检索评测报告",
         "",
-        f"**生成时间**：{ts}  |  **题目数**：{n}  |  **top_k**：{top_k}  |  **耗时**：{elapsed:.1f}s",
+        f"**生成时间**：{ts}  |  **题目数**：{n}  |  **top_k**：{top_k}  |  **mode**：{mode}  |  **耗时**：{elapsed:.1f}s",
         "",
         "## 汇总指标",
         "",
@@ -132,6 +141,9 @@ def main():
                         help="只评测指定题目，如 Q01 Q05（不填则评测全部）")
     parser.add_argument("--top-k", type=int, default=10,
                         help="检索返回数量（默认10）")
+    parser.add_argument("--mode", default="hybrid+rerank",
+                        choices=["dense", "hybrid", "hybrid+rerank"],
+                        help="检索模式（默认 hybrid+rerank）")
     args = parser.parse_args()
 
     cases: list[dict] = json.loads(CASES_FILE.read_text(encoding="utf-8"))
@@ -141,14 +153,14 @@ def main():
             print(f"未找到指定题目：{args.ids}")
             sys.exit(1)
 
-    print(f"\nPowerScopeRAG 检索评测  |  题目数={len(cases)}  |  top_k={args.top_k}")
+    print(f"\nPowerScopeRAG 检索评测  |  题目数={len(cases)}  |  top_k={args.top_k}  |  mode={args.mode}")
     print("=" * 60)
 
     t0 = time.time()
     results: dict = {}
 
     for case in cases:
-        r = eval_case(case, top_k=args.top_k)
+        r = eval_case(case, top_k=args.top_k, mode=args.mode)
         results[case["id"]] = r
         print(
             f"  {case['id']:4s}  Hit@1={_icon(r['hit_at_1'])}  Hit@5={_icon(r['hit_at_5'])}"
@@ -165,7 +177,7 @@ def main():
     print(f"\n{'='*60}")
     print(f"  Hit@1={h1:.1%}  Hit@3={h3:.1%}  Hit@5={h5:.1%}  MRR={mrr:.3f}  ({n}题, {elapsed:.1f}s)")
 
-    report = generate_report(cases, results, args.top_k, elapsed)
+    report = generate_report(cases, results, args.top_k, elapsed, mode=args.mode)
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     report_path = REPORTS_DIR / f"report_{ts}.md"
