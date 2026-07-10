@@ -19,6 +19,8 @@ DOC_DIR        = ROOT / "doc"
 INBOX_DIR      = DOC_DIR / "inbox"
 CLEAN_DIR      = ROOT / "data" / "cleaned"
 CHUNKS_FILE    = ROOT / "data" / "chunks.jsonl"
+DOC2QUERY_FILE = ROOT / "data" / "doc2query.jsonl"
+DOC2QUERY_CHUNKS_FILE = ROOT / "data" / "chunks_doc2query.jsonl"
 VECTORSTORE_DIR = ROOT / "data" / "vectorstore"
 
 # ── 分块参数 ──────────────────────────────────────────────────────────────────
@@ -35,7 +37,12 @@ RECURSIVE_SEPARATORS = ["\n\n", "\n", "。", "；", "，", " ", ""]
 EMBED_MODEL   = "BAAI/bge-large-zh-v1.5"   # 中文技术检索推荐模型
 EMBED_BATCH_SIZE = 64                        # 每批向量化的分块数
 COLLECTION_NAME  = "powerscoperag"           # Chroma 集合名称
+DOC2QUERY_COLLECTION_NAME = "powerscoperag_doc2query"
 QUERY_PREFIX  = "为这个句子生成表示以用于检索相关文章："  # BGE 查询指令前缀（仅查询时加）
+
+# 本地 embedding / reranker 运行设备。默认 auto：CUDA 可用则用 GPU，否则 CPU。
+# 可通过环境变量覆盖：POWERSCOPE_DEVICE=cuda / cpu
+LOCAL_MODEL_DEVICE = os.environ.get("POWERSCOPE_DEVICE", "auto")
 
 # ── 检索 ──────────────────────────────────────────────────────────────────────
 

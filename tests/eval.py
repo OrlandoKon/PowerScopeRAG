@@ -142,7 +142,11 @@ def main():
     parser.add_argument("--top-k", type=int, default=10,
                         help="检索返回数量（默认10）")
     parser.add_argument("--mode", default="hybrid+rerank",
-                        choices=["dense", "hybrid", "hybrid+rerank"],
+                        choices=[
+                            "dense", "hybrid", "hybrid+rerank",
+                            "dense+doc2query", "hybrid+doc2query",
+                            "hybrid+rerank+doc2query",
+                        ],
                         help="检索模式（默认 hybrid+rerank）")
     args = parser.parse_args()
 

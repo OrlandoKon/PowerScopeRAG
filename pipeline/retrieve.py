@@ -5,6 +5,7 @@ Supports three retrieval modes:
   dense          — vector-only (ChromaDB cosine similarity), original behaviour
   hybrid         — dense + BM25 fused via Reciprocal Rank Fusion
   hybrid+rerank  — hybrid + bge-reranker-v2-m3 cross-encoder re-ranking (default)
+  *+doc2query    — use the doc2query-expanded collection/chunks for retrieval
 
 BGE query instruction prefix is applied to queries at retrieval time.
 
@@ -21,15 +22,20 @@ Usage:
 
 import json
 import sys
+from pathlib import Path
 
 import chromadb
 import jieba
 from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
 from rank_bm25 import BM25Okapi
 
+ROOT = Path(__file__).parent.parent
+sys.path.insert(0, str(ROOT))
+
 from config import (
-    CHUNKS_FILE, COLLECTION_NAME, DEFAULT_TOP_K, EMBED_MODEL,
-    QUERY_PREFIX, RERANK_MODEL, RRF_K, VECTORSTORE_DIR,
+    CHUNKS_FILE, COLLECTION_NAME, DEFAULT_TOP_K, DOC2QUERY_CHUNKS_FILE,
+    DOC2QUERY_COLLECTION_NAME, EMBED_MODEL, QUERY_PREFIX, RERANK_MODEL, RRF_K,
+    VECTORSTORE_DIR, LOCAL_MODEL_DEVICE,
 )
 
 jieba.setLogLevel(20)  # suppress jieba initialisation noise
@@ -37,25 +43,48 @@ jieba.setLogLevel(20)  # suppress jieba initialisation noise
 # ── Dense retrieval (ChromaDB) ────────────────────────────────────────────────
 
 _ef = None
-_collection = None
+_collections: dict[str, chromadb.Collection] = {}
 
 
-def _get_collection() -> chromadb.Collection:
-    global _ef, _collection
-    if _collection is not None:
-        return _collection
+def _resolve_device() -> str:
+    if LOCAL_MODEL_DEVICE != "auto":
+        return LOCAL_MODEL_DEVICE
+    try:
+        import torch
+        return "cuda" if torch.cuda.is_available() else "cpu"
+    except Exception:
+        return "cpu"
+
+
+def _get_collection(collection_name: str = COLLECTION_NAME) -> chromadb.Collection:
+    global _ef, _collections
+    if collection_name in _collections:
+        return _collections[collection_name]
     _ef = SentenceTransformerEmbeddingFunction(
         model_name=EMBED_MODEL,
-        device="cpu",
+        device=_resolve_device(),
         normalize_embeddings=True,
     )
     client = chromadb.PersistentClient(path=str(VECTORSTORE_DIR))
-    _collection = client.get_collection(name=COLLECTION_NAME, embedding_function=_ef)
-    return _collection
+    collection = client.get_collection(name=collection_name, embedding_function=_ef)
+    _collections[collection_name] = collection
+    return collection
 
 
-def _dense_search(query: str, top_k: int, doc_type: str | None) -> list[dict]:
-    collection = _get_collection()
+def _restore_original_content(hit: dict) -> dict:
+    if hit.get("original_content"):
+        hit = dict(hit)
+        hit["content"] = hit.pop("original_content")
+    return hit
+
+
+def _dense_search(
+    query: str,
+    top_k: int,
+    doc_type: str | None,
+    collection_name: str = COLLECTION_NAME,
+) -> list[dict]:
+    collection = _get_collection(collection_name)
     where = {"doc_type": doc_type} if doc_type else None
     results = collection.query(
         query_texts=[QUERY_PREFIX + query],
@@ -69,32 +98,36 @@ def _dense_search(query: str, top_k: int, doc_type: str | None) -> list[dict]:
         results["metadatas"][0],
         results["distances"][0],
     ):
-        hits.append({"content": doc, "distance": dist, **meta})
+        hits.append(_restore_original_content({"content": doc, "distance": dist, **meta}))
     return hits
 
 
 # ── BM25 sparse retrieval ─────────────────────────────────────────────────────
 
-_bm25: BM25Okapi | None = None
-_bm25_chunks: list[dict] = []
+_bm25_cache: dict[str, tuple[BM25Okapi, list[dict]]] = {}
 
 
-def _get_bm25() -> tuple[BM25Okapi, list[dict]]:
-    global _bm25, _bm25_chunks
-    if _bm25 is not None:
-        return _bm25, _bm25_chunks
+def _get_bm25(chunks_file=CHUNKS_FILE) -> tuple[BM25Okapi, list[dict]]:
+    key = str(chunks_file)
+    if key in _bm25_cache:
+        return _bm25_cache[key]
     chunks: list[dict] = []
-    with open(CHUNKS_FILE, encoding="utf-8") as f:
+    with open(chunks_file, encoding="utf-8") as f:
         for line in f:
             chunks.append(json.loads(line))
-    tokenized = [list(jieba.cut(c["content"])) for c in chunks]
-    _bm25 = BM25Okapi(tokenized)
-    _bm25_chunks = chunks
-    return _bm25, _bm25_chunks
+    tokenized = [list(jieba.cut(c.get("indexed_content", c["content"]))) for c in chunks]
+    bm25 = BM25Okapi(tokenized)
+    _bm25_cache[key] = (bm25, chunks)
+    return bm25, chunks
 
 
-def _bm25_search(query: str, top_k: int, doc_type: str | None) -> list[dict]:
-    bm25, chunks = _get_bm25()
+def _bm25_search(
+    query: str,
+    top_k: int,
+    doc_type: str | None,
+    chunks_file=CHUNKS_FILE,
+) -> list[dict]:
+    bm25, chunks = _get_bm25(chunks_file)
     tokens = list(jieba.cut(query))
     scores = bm25.get_scores(tokens)
     pairs = [
@@ -105,6 +138,7 @@ def _bm25_search(query: str, top_k: int, doc_type: str | None) -> list[dict]:
     hits = []
     for i, score in pairs[:top_k]:
         c = dict(chunks[i])
+        c.pop("indexed_content", None)
         c["bm25_score"] = score
         c.setdefault("distance", 1.0)  # no cosine distance for BM25-only hits
         hits.append(c)
@@ -146,7 +180,7 @@ def _get_reranker():
     global _reranker
     if _reranker is None:
         from sentence_transformers import CrossEncoder
-        _reranker = CrossEncoder(RERANK_MODEL, max_length=512, device="cpu")
+        _reranker = CrossEncoder(RERANK_MODEL, max_length=512, device=_resolve_device())
     return _reranker
 
 
@@ -195,18 +229,28 @@ def retrieve(
         mode:           "dense" | "hybrid" | "hybrid+rerank" (default)
         max_per_source: Max chunks per source doc in final results (default 2).
     """
-    if mode == "dense":
-        return _dense_search(query, top_k, doc_type)
+    use_doc2query = mode.endswith("+doc2query")
+    base_mode = mode.removesuffix("+doc2query")
+    collection_name = DOC2QUERY_COLLECTION_NAME if use_doc2query else COLLECTION_NAME
+    chunks_file = DOC2QUERY_CHUNKS_FILE if use_doc2query else CHUNKS_FILE
+
+    if base_mode == "dense":
+        return _dense_search(query, top_k, doc_type, collection_name=collection_name)
 
     fetch_k = max(top_k * 3, 20)
-    dense_hits  = _dense_search(query, fetch_k, doc_type)
-    sparse_hits = _bm25_search(query, fetch_k, doc_type)
+    dense_hits  = _dense_search(query, fetch_k, doc_type, collection_name=collection_name)
+    sparse_hits = _bm25_search(query, fetch_k, doc_type, chunks_file=chunks_file)
     fused = _rrf_fuse(dense_hits, sparse_hits)
 
-    if mode == "hybrid":
+    if base_mode == "hybrid":
         return _dedupe_by_source(fused, max_per_source)[:top_k]
 
     # hybrid+rerank: rerank a larger pool, then apply source diversity
+    if base_mode != "hybrid+rerank":
+        raise ValueError(
+            "mode must be one of: dense, hybrid, hybrid+rerank, "
+            "dense+doc2query, hybrid+doc2query, hybrid+rerank+doc2query"
+        )
     reranked = rerank(query, fused[:fetch_k], top_n=top_k * 3)
     return _dedupe_by_source(reranked, max_per_source)[:top_k]
 

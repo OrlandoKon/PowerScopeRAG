@@ -247,6 +247,34 @@ python pipeline/embed.py
 python pipeline/embed.py --reset
 ```
 
+### Doc2Query 扩展索引（可选）
+
+Doc2Query 用于离线生成“每个 chunk 可能回答的问题”，缓解用户查询与标准条文/论文陈述句之间的表达差异。生成阶段会做基础质量过滤，并可通过全库检索回测过滤泛化、重复或指向性不强的问题。
+
+```bash
+# 1. 生成候选问题 + 标准答案，并做全库回测过滤（默认使用 hybrid 快速回测）
+python pipeline/doc2query.py --resume
+
+# 调试时可先只跑少量 chunk
+python pipeline/doc2query.py --limit 20 --resume
+
+# 如需更严格但更慢的回测，可抽样使用 rerank
+python pipeline/doc2query.py --limit 20 --resume --force --backcheck-mode hybrid+rerank
+
+# 2. 构建 doc2query 专用向量索引
+python pipeline/embed.py --doc2query --reset
+
+# 3. 使用扩展索引评测
+python tests/eval.py --mode hybrid+rerank+doc2query --top-k 5
+```
+
+输出文件：
+
+| 文件 | 说明 |
+|------|------|
+| `data/doc2query.jsonl` | 每个 chunk 的生成问题、标准答案、过滤原因和回测结果 |
+| `data/chunks_doc2query.jsonl` | 带 `indexed_content` 的扩展 chunks，用于构建 doc2query 索引 |
+
 ### 检索质量评测
 
 ```bash
