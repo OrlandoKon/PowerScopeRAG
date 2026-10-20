@@ -1,6 +1,6 @@
 # PowerScopeRAG
 
-面向雄安新区 400V 低压配电网停电原因分析的 RAG 知识库检索服务。
+面向雄安新区 400V 低压配电网停电原因分析的 Agentic RAG 知识检索服务。
 
 ---
 
@@ -8,191 +8,50 @@
 
 | 类别 | 数量 | 说明 |
 |------|------|------|
-| 行业标准（regulation） | 7 份 | GB/T 12325、GB/T 15543、GB 50054、GB 50217、GBT 13955、GBT 45418、DL/T 2806 |
-| 期刊论文（journal） | 9 份 | 台区低电压、分布式光伏、储能系统相关研究论文 |
-| **合计** | **665 个分块** | 向量化存储，支持语义检索 |
+| 行业标准（regulation） | 104 份 / 7418 个分块 | 判断阈值、技术要求与操作依据 |
+| 期刊与参考资料（journal） | 23 份 / 412 个分块 | 配网故障、低电压、分布式电源等研究 |
+| 学位论文（thesis） | 4 份 / 649 个分块 | 配电网运行与故障分析研究 |
+| **知识文档合计** | **131 份 / 8479 个分块** | 标准、规程和研究资料统一检索 |
+| 历史案例库 | 34 条结构化案例 | 停电现象、处置过程与原因判定 |
 
 ---
 
 ## API 地址
 
 ```
-http://rag.orlando.ink:8000
+https://rag.orlando.ink
 ```
 
 ---
 
 ## 接口说明
 
-| 接口 | 方法 | 功能 |
-|------|------|------|
-| `/` | GET | 健康检查 |
-| `/stats` | GET | 向量库统计 |
-| `/retrieve` | POST | 语义检索，返回原始片段 |
-| `/ask` | POST | **RAG 问答**，检索 + DeepSeek 生成回答 |
+对外业务接口统一为 `POST /rag`。多智能体系统默认获取结构化证据；需要RAG直接回答时设置 `generate_answer: true`。
 
----
+| 接口 | 用途 |
+|---|---|
+| `GET /` | 知识库状态看板 |
+| `GET /health` | 服务健康检查 |
+| `POST /rag` | Agentic RAG取证，可选生成回答 |
 
-### GET `/`  健康检查
-
-```bash
-curl http://rag.orlando.ink:8000/
-```
-
-返回：
-```json
-{"status": "ok", "service": "PowerScopeRAG Retrieval API"}
-```
-
----
-
-### GET `/stats`  向量库统计
+请求示例：
 
 ```bash
-curl http://rag.orlando.ink:8000/stats
-```
-
-返回：
-```json
-{
-  "total_documents": 665,
-  "collection": "powerscoperag",
-  "model": "BAAI/bge-large-zh-v1.5",
-  "vectorstore_path": "..."
-}
-```
-
----
-
-### POST `/retrieve`  语义检索
-
-输入问题，返回知识库中最相关的原始文本片段，不调用 LLM。
-
-**请求体：**
-
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `query` | string | ✅ | 检索问题，中英文均可，最长 500 字符 |
-| `top_k` | int | ❌ | 返回结果数量，默认 5，范围 1–20 |
-| `doc_type` | string | ❌ | 文档类型过滤，不填则检索全部 |
-
-**返回字段（`results` 数组中每条）：**
-
-| 字段 | 说明 |
-|------|------|
-| `content` | 检索到的文本片段 |
-| `source` | 来源文件名 |
-| `doc_type` | 文档类型 |
-| `H1` / `H2` / `H3` | 该片段所在章节标题（可能为空） |
-| `chunk_idx` | 该片段在源文档中的位置序号 |
-| `distance` | 余弦距离，**越小越相关** |
-
----
-
-### POST `/ask`  RAG 问答（推荐）
-
-检索相关片段后交给 DeepSeek 生成回答，返回最终答案和参考来源。
-
-**请求体**与 `/retrieve` 完全相同。
-
-**返回字段：**
-
-| 字段 | 说明 |
-|------|------|
-| `query` | 原始问题 |
-| `answer` | DeepSeek 根据知识库生成的回答 |
-| `sources` | 参考片段列表（同 `/retrieve` 的 `results`） |
-
----
-
-## 使用示例
-
-### 示例 1：RAG 问答
-
-```bash
-curl -X POST http://rag.orlando.ink:8000/ask \
+curl -X POST https://rag.orlando.ink/rag \
   -H "Content-Type: application/json" \
   -d '{
-    "query": "20kV以下三相供电电压偏差限值是多少？",
-    "top_k": 4,
-    "doc_type": "regulation"
+    "query": "某400V台区全部停电，低压总开关过流动作，应该查找哪些判断依据和相似案例？",
+    "max_follow_up_rounds": 1,
+    "knowledge_top_k": 4,
+    "case_top_k": 3,
+    "include_trace": false,
+    "generate_answer": false
   }'
 ```
 
-返回（节选）：
-```json
-{
-  "query": "20kV以下三相供电电压偏差限值是多少？",
-  "answer": "根据《GB/T 12325-2008》第4.2节，20 kV及以下三相供电电压偏差的限值为标称电压的 ±7%。",
-  "sources": [
-    {
-      "content": "4.2  20 kV及以下三相供电电压偏差为标称电压的 ±7%。...",
-      "source": "12325-2008-gbt-e-300.md",
-      "doc_type": "regulation",
-      "H1": "4 供电电压偏差的限值",
-      "H2": null,
-      "H3": null,
-      "chunk_idx": 8,
-      "distance": 0.364
-    }
-  ]
-}
-```
+返回值包含 `evidence`（带编号和来源的证据）、`sufficient`（证据是否充分）、`missing_data`（待补数据）、`conflicts`（冲突）和 `coverage`（证据覆盖情况）。设置 `generate_answer: true` 时，额外返回 `answer` 和 `sources`。
 
----
-
-### 示例 2：只检索不生成（调试用）
-
-```bash
-curl -X POST http://rag.orlando.ink:8000/retrieve \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "台区低电压的主要原因有哪些",
-    "top_k": 5,
-    "doc_type": "journal"
-  }'
-```
-
----
-
-### 示例 3：Python 调用
-
-```python
-import requests
-
-# RAG 问答
-resp = requests.post(
-    "http://rag.orlando.ink:8000/ask",
-    json={"query": "三相电压不平衡度限值是多少？", "top_k": 5}
-)
-data = resp.json()
-print(data["answer"])
-for src in data["sources"]:
-    print(f"  [{src['distance']:.3f}] {src['source']} | {src.get('H1', '')}")
-```
-
----
-
-### 示例 4：`doc_type` 可选值
-
-| 值 | 含义 |
-|----|------|
-| `regulation` | 只检索行业标准（GB/T、DL/T 等） |
-| `journal` | 只检索期刊论文 |
-| `thesis` | 只检索学位论文 |
-| 不填 | 检索全部文档 |
-
----
-
-### 示例 5：交互式文档（浏览器）
-
-在浏览器中打开：
-
-```
-http://rag.orlando.ink:8000/docs
-```
-
-页面列出所有接口，点击任意接口 → **Try it out** → 填参数 → **Execute**，结果直接显示在页面上，不需要写任何代码。
+多智能体接入示例见[Agentic RAG接入配置](res/Agentic_RAG多智能体系统接入配置.md)；完整字段见[接口文档](https://rag.orlando.ink/docs)。
 
 ---
 
@@ -228,6 +87,29 @@ python pipeline/convert.py --file doc/inbox/regulations/GB50054.pdf
 
 支持格式：`.pdf`（pymupdf4llm）、`.docx`（python-docx）、`.txt`（自动识别编号标题）、`.md`（直接复制）。
 
+### 构建历史案例库
+
+`doc/cases/raw/` 保存案例与停电事件的原始资料，不进入通用知识文档转换流程。其中 `配网故障分析.docx` 按三级原因编号拆成独立案例，`停电分析0609.xlsx` 保留为原始停电分析数据。每条结构化案例包含触发条件、观测现象、停电范围、最终原因、处置过程和核验状态。
+
+```bash
+# 1. 解析 DOCX；未核验案例不会进入评测集
+python pipeline/case_ingest.py --export-eval
+
+# 2. 构建独立案例向量集合 powerscoperag_cases
+python pipeline/embed.py --cases --reset
+
+# 3. 同时查看主知识库证据和相似案例
+python pipeline/retrieve.py "高温期间配变过载保护跳闸" 5 "" with-cases
+```
+
+专家确认案例后，在 `data/cases.jsonl` 中将对应记录的 `verification_status` 设为 `已确认`，并将 `evaluation_eligible` 设为 `true`，再单独导出评测数据：
+
+```bash
+python pipeline/case_ingest.py --eval-only
+```
+
+评测输入 `diagnostic_input` 只包含事件条件、观测量和停电范围，不包含最终原因与处置结果。导出的每个样本还带有 `exclude_case_ids`，评测检索时必须排除当前案例，防止通过检索原案例直接得到答案。
+
 ### 重新构建知识库
 
 ```bash
@@ -245,6 +127,21 @@ python pipeline/embed.py
 
 # 重新索引（清空后重建）
 python pipeline/embed.py --reset
+```
+
+### 标题与层级感知检索
+
+增强索引将文档标题、作者、文档类型和 H1/H2/H3 章节路径与正文共同用于向量化、BM25 和交叉编码精排。层级模式进一步聚合文档与章节得分，并根据文档置信度自适应选择 2 至 4 个同源互补片段，同时过滤近重复内容。API 默认使用 `hybrid+rerank+hierarchical`；可通过 `POWERSCOPE_RETRIEVAL_MODE=hybrid+rerank` 回滚，原索引和行为保持不变。
+
+```bash
+# 构建独立增强索引，不覆盖现有基线 collection
+python pipeline/embed.py --structured --reset
+
+# 仅验证标题与结构参与检索
+python tests/eval.py --mode hybrid+rerank+structured --top-k 5
+
+# 叠加文档/章节聚合与自适应证据选择
+python tests/eval.py --mode hybrid+rerank+hierarchical --top-k 5
 ```
 
 ### Doc2Query 扩展索引（可选）
@@ -278,7 +175,7 @@ python tests/eval.py --mode hybrid+rerank+doc2query --top-k 5
 ### 检索质量评测
 
 ```bash
-# 评测全部 20 题
+# 评测全部 200 题
 python tests/eval.py
 
 # 只测指定题目

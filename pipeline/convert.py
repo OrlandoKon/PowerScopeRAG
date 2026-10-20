@@ -17,9 +17,12 @@ pipeline/convert.py — 多格式文档转 Markdown
 """
 
 import argparse
+from concurrent.futures import ProcessPoolExecutor
+import os
 import re
 import shutil
 import sys
+import unicodedata
 from pathlib import Path
 
 ROOT = Path(__file__).parent.parent
@@ -56,36 +59,151 @@ def _is_garbled(text: str) -> bool:
     return False
 
 
-def _pdf_ocr(src: Path) -> str:
-    """用 RapidOCR 对扫描版 PDF 逐页识别，返回拼接后的纯文本。"""
+def _private_use_count(text: str) -> int:
+    return sum(0xE000 <= ord(char) <= 0xF8FF for char in text)
+
+
+def _normalize_custom_font_block(text: str) -> str:
+    """Normalize text extracted from PDFs that use private-use font glyphs."""
+    text = "".join(
+        " " if 0xE000 <= ord(char) <= 0xF8FF else char
+        for char in text
+    )
+    text = unicodedata.normalize("NFKC", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    text = re.sub(r"(?<=\d)\s*\.\s*(?=\d)", ".", text)
+    text = re.sub(r"\s*([,，。;；:：、!?！？])\s*", r"\1", text)
+    text = re.sub(r"(?<=[一-鿿])\s+(?=[一-鿿])", "", text)
+    return text
+
+
+def _custom_font_pdf_to_md(src: Path) -> str:
+    """Recover block text from a PDF whose custom font confuses pymupdf4llm."""
     import fitz
-    import numpy as np
+
+    doc = fitz.open(str(src))
+    out: list[str] = []
+    repeated_headers = {
+        "华北电力大学硕士学位论文",
+        "中国知网https://www.cnki.net",
+    }
+    for page in doc:
+        for block in page.get_text("blocks", sort=True):
+            text = _normalize_custom_font_block(block[4])
+            if not text or text in repeated_headers or re.fullmatch(r"\d{1,3}", text):
+                continue
+            compact = re.sub(r"\s+", "", text)
+            chapter = re.match(r"^(第(?:\d+|[一二三四五六七八九十百]+)章)(.+)$", compact)
+            section = re.match(r"^(\d+(?:\.\d+){1,3})([^\d].+)$", compact)
+            if chapter and len(compact) <= 80:
+                out.extend(["", f"# {chapter.group(1)} {chapter.group(2)}", ""])
+            elif section and len(compact) <= 100:
+                level = min(section.group(1).count(".") + 1, 4)
+                out.extend([
+                    "",
+                    f"{'#' * level} {section.group(1)} {section.group(2)}",
+                    "",
+                ])
+            else:
+                out.extend([text, ""])
+    doc.close()
+    result = "\n".join(out)
+    return re.sub(r"\n{3,}", "\n\n", result).strip()
+
+
+def _needs_custom_font_fallback(src: Path) -> bool:
+    """Detect large amounts of text hidden behind private-use PDF glyphs."""
+    import fitz
+
+    doc = fitz.open(str(src))
+    raw = "".join(page.get_text() for page in doc)
+    doc.close()
+    private_use = _private_use_count(raw)
+    visible = len(raw) - _private_use_count(raw)
+    return (
+        private_use >= 50
+        and private_use / max(len(raw), 1) >= 0.01
+        and visible >= 2_000
+    )
+
+
+_OCR_ENGINE = None
+
+
+def _init_ocr_worker() -> None:
+    global _OCR_ENGINE
     from rapidocr_onnxruntime import RapidOCR
 
-    ocr = RapidOCR()
-    doc = fitz.open(str(src))
-    pages_text: list[str] = []
+    _OCR_ENGINE = RapidOCR()
 
-    for page in doc:
-        # 渲染为 RGB 图像（2× 缩放保证识别精度）
-        mat = fitz.Matrix(2.0, 2.0)
-        pix = page.get_pixmap(matrix=mat, colorspace=fitz.csRGB)
-        img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(
-            pix.height, pix.width, 3
-        )
-        result, _ = ocr(img)
-        if result:
-            lines = [item[1] for item in result]
-            pages_text.append("\n".join(lines))
 
+def _ocr_pdf_page(task: tuple[str, int]) -> str:
+    """Render and recognize one PDF page inside a worker process."""
+    import fitz
+    import numpy as np
+
+    src, page_number = task
+    doc = fitz.open(src)
+    page = doc[page_number]
+    # 1.5x is sufficient for clean standard-document scans and keeps large
+    # multi-page regulations practical to ingest.
+    mat = fitz.Matrix(1.5, 1.5)
+    pix = page.get_pixmap(matrix=mat, colorspace=fitz.csRGB)
+    img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(
+        pix.height, pix.width, 3
+    )
+    result, _ = _OCR_ENGINE(img)
     doc.close()
-    return "\n\n".join(pages_text)
+    if not result:
+        return ""
+    return "\n".join(item[1] for item in result)
+
+
+def _pdf_has_extractable_text(src: Path) -> bool:
+    """Cheaply detect scans before invoking pymupdf4llm's layout parser."""
+    import fitz
+
+    doc = fitz.open(str(src))
+    length = 0
+    for page in doc:
+        length += len(page.get_text())
+        if length >= _OCR_FALLBACK_THRESHOLD:
+            break
+    doc.close()
+    return length >= _OCR_FALLBACK_THRESHOLD
+
+
+def _pdf_ocr(src: Path) -> str:
+    """用 RapidOCR 并行识别扫描版 PDF，按原页序返回文本。"""
+    import fitz
+
+    doc = fitz.open(str(src))
+    page_count = len(doc)
+    doc.close()
+    workers = min(8, max(1, os.cpu_count() or 1), page_count)
+    tasks = [(str(src), page_number) for page_number in range(page_count)]
+    with ProcessPoolExecutor(
+        max_workers=workers,
+        initializer=_init_ocr_worker,
+    ) as pool:
+        pages_text = list(pool.map(_ocr_pdf_page, tasks, chunksize=1))
+    return "\n\n".join(text for text in pages_text if text)
 
 
 def pdf_to_md(src: Path) -> str:
+    if _needs_custom_font_fallback(src):
+        print(f"      [字体回退] 检测到自定义字体正文，切换文本块提取：{src.name}")
+        return _custom_font_pdf_to_md(src)
+
+    if not _pdf_has_extractable_text(src):
+        print(f"      [OCR] 扫描版 PDF，切换并行 RapidOCR：{src.name}")
+        return _pdf_ocr(src)
+
     import pymupdf4llm
 
-    text = pymupdf4llm.to_markdown(str(src))
+    # OCR is handled by the explicit fallback below. Disabling pymupdf4llm's
+    # implicit OCR avoids parser failures on pages with images but no OCR lines.
+    text = pymupdf4llm.to_markdown(str(src), use_ocr=False)
     if len(text.strip()) >= _OCR_FALLBACK_THRESHOLD and not _is_garbled(text):
         return text
 

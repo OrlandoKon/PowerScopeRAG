@@ -1,8 +1,9 @@
 """
 pipeline/embed.py — Embed chunks and index into Chroma vector store.
 
-Input:  data/chunks.jsonl
-Output: data/vectorstore/  (Chroma persistent collection "powerscoperag")
+Inputs:
+  data/chunks.jsonl  -> collection "powerscoperag"
+  data/cases.jsonl   -> collection "powerscoperag_cases" (with --cases)
 
 Embedding model: BAAI/bge-large-zh-v1.5 via sentence-transformers.
   - 1024-dim dense vectors, strong on Chinese technical retrieval
@@ -29,15 +30,19 @@ ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
 from config import (
+    CASES_FILE,
+    CASE_COLLECTION_NAME,
     CHUNKS_FILE,
     DOC2QUERY_CHUNKS_FILE,
     VECTORSTORE_DIR,
     EMBED_MODEL,
     EMBED_BATCH_SIZE,
     COLLECTION_NAME,
+    STRUCTURED_COLLECTION_NAME,
     DOC2QUERY_COLLECTION_NAME,
     LOCAL_MODEL_DEVICE,
 )
+from pipeline.index_text import build_index_text
 
 
 def resolve_device() -> str:
@@ -78,6 +83,7 @@ def build_collection(
     chunks: list[dict],
     reset: bool = False,
     collection_name: str = COLLECTION_NAME,
+    structured: bool = False,
 ) -> chromadb.Collection:
     VECTORSTORE_DIR.mkdir(parents=True, exist_ok=True)
     device = resolve_device()
@@ -115,8 +121,15 @@ def build_collection(
         chunks = new_chunks
 
     ids = [f"{c['source']}::{c['chunk_idx']}" for c in chunks]
-    documents = [c.get("indexed_content", c["content"]) for c in chunks]
+    documents = [
+        build_index_text(c) if structured else c.get("indexed_content", c["content"])
+        for c in chunks
+    ]
     metadatas = [_metadata_for_chunk(c) for c in chunks]
+    if structured:
+        for chunk, metadata in zip(chunks, metadatas):
+            metadata["original_content"] = chunk["content"]
+            metadata["index_variant"] = "structured"
 
     print(f"Indexing {len(chunks)} chunks in batches of {EMBED_BATCH_SIZE}...")
     for start in tqdm(range(0, len(chunks), EMBED_BATCH_SIZE), unit="batch"):
@@ -133,16 +146,32 @@ def build_collection(
 def main() -> None:
     parser = argparse.ArgumentParser(description="Embed chunks into Chroma vector store.")
     parser.add_argument("--reset", action="store_true", help="Delete and rebuild target collection")
-    parser.add_argument("--doc2query", action="store_true",
+    target = parser.add_mutually_exclusive_group()
+    target.add_argument("--doc2query", action="store_true",
                         help="Index data/chunks_doc2query.jsonl into powerscoperag_doc2query")
+    target.add_argument("--cases", action="store_true",
+                        help="Index data/cases.jsonl into the independent case collection")
+    target.add_argument("--structured", action="store_true",
+                        help="Index title + H1/H2/H3 + body into the structured collection")
     parser.add_argument("--chunks", type=Path, help="Override chunks jsonl path")
     parser.add_argument("--collection", help="Override collection name")
     args = parser.parse_args()
 
-    chunks_file = args.chunks or (DOC2QUERY_CHUNKS_FILE if args.doc2query else CHUNKS_FILE)
-    collection_name = args.collection or (
-        DOC2QUERY_COLLECTION_NAME if args.doc2query else COLLECTION_NAME
-    )
+    if args.cases:
+        default_file = CASES_FILE
+        default_collection = CASE_COLLECTION_NAME
+    elif args.doc2query:
+        default_file = DOC2QUERY_CHUNKS_FILE
+        default_collection = DOC2QUERY_COLLECTION_NAME
+    elif args.structured:
+        default_file = CHUNKS_FILE
+        default_collection = STRUCTURED_COLLECTION_NAME
+    else:
+        default_file = CHUNKS_FILE
+        default_collection = COLLECTION_NAME
+
+    chunks_file = args.chunks or default_file
+    collection_name = args.collection or default_collection
 
     if not chunks_file.exists():
         print(f"chunks file not found at {chunks_file}")
@@ -152,7 +181,12 @@ def main() -> None:
     chunks = load_chunks(chunks_file)
     print(f"Loaded {len(chunks)} chunks from {chunks_file.name}")
 
-    collection = build_collection(chunks, reset=args.reset, collection_name=collection_name)
+    collection = build_collection(
+        chunks,
+        reset=args.reset,
+        collection_name=collection_name,
+        structured=args.structured,
+    )
 
     total = collection.count()
     print(f"\n向量库就绪：{total} 条文档 → {VECTORSTORE_DIR}")

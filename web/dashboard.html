@@ -1,0 +1,509 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="雄安新区400V低压配电网停电原因分析 Agentic RAG 运行总览">
+  <title>PowerScopeRAG · Agentic RAG 运行总览</title>
+  <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js" defer></script>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f4f7f6;
+      --surface: #ffffff;
+      --surface-2: #f8faf9;
+      --line: #dce5e1;
+      --line-strong: #c8d5d0;
+      --text: #17231f;
+      --muted: #66736e;
+      --green: #087f68;
+      --green-soft: #e7f5f0;
+      --blue: #2463d4;
+      --blue-soft: #eaf1fd;
+      --amber: #a65b0b;
+      --amber-soft: #fff2df;
+      --red: #b33a3a;
+      --shadow: 0 8px 24px rgba(24, 54, 43, 0.06);
+    }
+
+    * { box-sizing: border-box; }
+    html { background: var(--bg); }
+    body {
+      margin: 0;
+      min-width: 320px;
+      color: var(--text);
+      background: var(--bg);
+      font-family: Inter, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+      font-size: 14px;
+      letter-spacing: 0;
+    }
+    button, input { font: inherit; letter-spacing: 0; }
+    a { color: inherit; }
+
+    .topbar {
+      height: 64px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.96);
+      display: flex;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    .topbar-inner {
+      width: min(1240px, calc(100% - 40px));
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .brand { display: flex; align-items: center; gap: 11px; min-width: 0; }
+    .brand-mark {
+      width: 34px;
+      height: 34px;
+      display: grid;
+      place-items: center;
+      color: white;
+      background: var(--green);
+      border-radius: 6px;
+      flex: 0 0 auto;
+    }
+    .brand-mark svg { width: 19px; height: 19px; }
+    .brand-name { font-size: 16px; font-weight: 750; line-height: 1.2; }
+    .brand-subtitle {
+      margin-top: 2px;
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .top-actions { display: flex; align-items: center; gap: 10px; }
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      min-height: 32px;
+      padding: 0 11px;
+      border: 1px solid #b8ddd2;
+      border-radius: 999px;
+      color: #08634f;
+      background: var(--green-soft);
+      font-size: 12px;
+      font-weight: 650;
+    }
+    .status-dot { width: 7px; height: 7px; border-radius: 50%; background: #0ca678; }
+    .icon-link {
+      width: 34px;
+      height: 34px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      display: grid;
+      place-items: center;
+      background: var(--surface);
+      color: #45524d;
+      text-decoration: none;
+    }
+    .icon-link:hover { border-color: var(--green); color: var(--green); }
+    .icon-link svg { width: 17px; height: 17px; }
+
+    main { width: min(1240px, calc(100% - 40px)); margin: 0 auto; padding: 34px 0 48px; }
+    .page-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; }
+    .eyebrow { margin: 0 0 8px; color: var(--green); font-size: 12px; font-weight: 750; }
+    h1 { margin: 0; font-size: 30px; line-height: 1.25; font-weight: 760; }
+    .heading-meta { color: var(--muted); font-size: 12px; text-align: right; line-height: 1.7; }
+
+    .metric-grid {
+      margin-top: 24px;
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .metric-card {
+      min-height: 126px;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+    .metric-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .metric-label { color: var(--muted); font-size: 13px; font-weight: 650; }
+    .metric-icon { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 6px; }
+    .metric-icon svg { width: 16px; height: 16px; }
+    .metric-icon.green { color: var(--green); background: var(--green-soft); }
+    .metric-icon.blue { color: var(--blue); background: var(--blue-soft); }
+    .metric-icon.amber { color: var(--amber); background: var(--amber-soft); }
+    .metric-value { margin-top: 14px; font-size: 31px; line-height: 1; font-weight: 760; font-variant-numeric: tabular-nums; }
+    .metric-note { margin-top: 9px; color: var(--muted); font-size: 12px; }
+
+    .section-grid {
+      margin-top: 18px;
+      display: grid;
+      grid-template-columns: minmax(0, 1.25fr) minmax(320px, .75fr);
+      gap: 14px;
+    }
+    .panel {
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    .panel-header {
+      min-height: 58px;
+      padding: 0 18px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+    }
+    .panel-title { margin: 0; font-size: 15px; font-weight: 730; }
+    .panel-subtitle { color: var(--muted); font-size: 12px; white-space: nowrap; }
+    .panel-body { padding: 18px; }
+
+    .composition { display: grid; gap: 18px; }
+    .composition-row { display: grid; grid-template-columns: 92px 1fr 120px; align-items: center; gap: 14px; }
+    .composition-name { font-weight: 650; }
+    .track { height: 9px; border-radius: 999px; background: #edf1ef; overflow: hidden; }
+    .fill { height: 100%; border-radius: inherit; min-width: 3px; }
+    .fill.regulation { background: var(--green); }
+    .fill.journal { background: var(--blue); }
+    .fill.thesis { background: var(--amber); }
+    .composition-value { color: var(--muted); font-size: 12px; text-align: right; font-variant-numeric: tabular-nums; }
+
+    .system-list { margin: 0; display: grid; gap: 0; }
+    .system-row { padding: 11px 0; border-bottom: 1px solid #edf1ef; display: grid; grid-template-columns: 92px 1fr; gap: 12px; }
+    .system-row:last-child { border-bottom: 0; }
+    .system-row dt { color: var(--muted); }
+    .system-row dd { margin: 0; font-weight: 620; overflow-wrap: anywhere; }
+
+    .quality-panel { margin-top: 14px; }
+    .quality-layout { display: grid; grid-template-columns: 280px 1fr; gap: 30px; align-items: center; }
+    .retrieval-score { padding-right: 28px; border-right: 1px solid var(--line); }
+    .score-kicker { color: var(--muted); font-size: 12px; }
+    .score-main { margin: 7px 0 17px; font-size: 30px; font-weight: 760; }
+    .score-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .score-cell { padding: 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-2); }
+    .score-cell span { display: block; color: var(--muted); font-size: 11px; }
+    .score-cell strong { display: block; margin-top: 5px; font-size: 16px; font-variant-numeric: tabular-nums; }
+    .ragas-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 16px; }
+    .ragas-item { min-width: 0; }
+    .ragas-name { height: 34px; color: var(--muted); font-size: 12px; line-height: 1.4; }
+    .ragas-value { margin: 4px 0 8px; font-size: 22px; font-weight: 730; font-variant-numeric: tabular-nums; }
+    .ragas-track { height: 5px; border-radius: 999px; background: #e8eeeb; overflow: hidden; }
+    .ragas-fill { height: 100%; background: var(--blue); border-radius: inherit; }
+
+    .inventory { margin-top: 14px; }
+    .inventory-controls { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+    .search-wrap { position: relative; width: 230px; }
+    .search-wrap svg { position: absolute; left: 10px; top: 9px; width: 15px; height: 15px; color: var(--muted); }
+    .search-input {
+      width: 100%; height: 34px; padding: 0 10px 0 32px;
+      border: 1px solid var(--line-strong); border-radius: 6px; background: white; color: var(--text); outline: 0;
+    }
+    .search-input:focus { border-color: var(--green); box-shadow: 0 0 0 3px rgba(8, 127, 104, .1); }
+    .filter-group { display: inline-flex; padding: 2px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-2); }
+    .filter-button { height: 28px; padding: 0 10px; border: 0; border-radius: 4px; background: transparent; color: var(--muted); cursor: pointer; }
+    .filter-button.active { background: white; color: var(--text); box-shadow: 0 1px 4px rgba(20, 40, 33, .09); font-weight: 650; }
+    .table-wrap { max-height: 430px; overflow: auto; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 12px 18px; border-bottom: 1px solid #edf1ef; text-align: left; }
+    th { position: sticky; top: 0; z-index: 1; color: var(--muted); background: var(--surface-2); font-size: 11px; font-weight: 700; }
+    td { font-size: 13px; }
+    tbody tr:hover { background: #f8fbfa; }
+    .type-tag { display: inline-flex; align-items: center; min-height: 24px; padding: 0 8px; border-radius: 999px; font-size: 11px; font-weight: 650; }
+    .type-tag.regulation { color: #08634f; background: var(--green-soft); }
+    .type-tag.journal { color: #2256aa; background: var(--blue-soft); }
+    .type-tag.thesis { color: #8a4a08; background: var(--amber-soft); }
+    .doc-name { max-width: 720px; line-height: 1.45; overflow-wrap: anywhere; }
+    .number-cell { width: 110px; text-align: right; font-variant-numeric: tabular-nums; font-weight: 650; }
+    .empty { padding: 42px 18px; text-align: center; color: var(--muted); }
+    .table-footer { min-height: 42px; padding: 0 18px; border-top: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; color: var(--muted); font-size: 12px; }
+
+    .footer { margin-top: 18px; display: flex; align-items: center; justify-content: space-between; color: var(--muted); font-size: 11px; }
+    .footer strong { color: #43514b; font-weight: 650; }
+    .loading { opacity: .55; }
+
+    @media (max-width: 900px) {
+      .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .section-grid { grid-template-columns: 1fr; }
+      .quality-layout { grid-template-columns: 1fr; }
+      .retrieval-score { padding-right: 0; padding-bottom: 20px; border-right: 0; border-bottom: 1px solid var(--line); }
+      .ragas-grid { grid-template-columns: repeat(3, 1fr); }
+      .panel-header.inventory-header { align-items: flex-start; flex-direction: column; padding-top: 14px; padding-bottom: 14px; }
+    }
+    @media (max-width: 600px) {
+      .topbar-inner, main { width: min(100% - 24px, 1240px); }
+      .brand-subtitle, .status-pill span:last-child, .heading-meta { display: none; }
+      main { padding-top: 24px; }
+      h1 { font-size: 24px; }
+      .metric-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
+      .metric-card { min-height: 116px; padding: 14px; }
+      .metric-value { font-size: 26px; }
+      .composition-row { grid-template-columns: 76px 1fr; }
+      .composition-value { grid-column: 2; text-align: left; margin-top: -9px; }
+      .ragas-grid { grid-template-columns: repeat(2, 1fr); }
+      .inventory-controls, .search-wrap { width: 100%; }
+      .filter-group { width: 100%; overflow-x: auto; }
+      .filter-button { flex: 1 0 auto; }
+      th, td { padding-left: 12px; padding-right: 12px; }
+      .doc-name { min-width: 260px; }
+      .footer { align-items: flex-start; flex-direction: column; gap: 6px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <div class="brand-mark"><i data-lucide="zap"></i></div>
+        <div>
+          <div class="brand-name">PowerScopeRAG</div>
+          <div class="brand-subtitle">雄安新区 400V 低压配电网停电原因分析 Agentic RAG</div>
+        </div>
+      </div>
+      <div class="top-actions">
+        <div class="status-pill"><span class="status-dot"></span><span id="service-status">服务运行中</span></div>
+        <a class="icon-link" href="/docs" title="API 接口文档" aria-label="API 接口文档"><i data-lucide="braces"></i></a>
+      </div>
+    </div>
+  </header>
+
+  <main class="loading" id="dashboard">
+    <div class="page-heading">
+      <div>
+        <p class="eyebrow">AGENTIC RAG STATUS</p>
+        <h1>Agentic RAG 运行总览</h1>
+      </div>
+      <div class="heading-meta">索引更新时间<br><strong id="indexed-at">--</strong></div>
+    </div>
+
+    <section class="metric-grid" aria-label="知识库核心指标">
+      <article class="metric-card">
+        <div class="metric-top"><span class="metric-label">知识文档</span><span class="metric-icon green"><i data-lucide="files"></i></span></div>
+        <div class="metric-value" id="metric-documents">--</div>
+        <div class="metric-note">标准、期刊与学位论文</div>
+      </article>
+      <article class="metric-card">
+        <div class="metric-top"><span class="metric-label">知识切片</span><span class="metric-icon blue"><i data-lucide="blocks"></i></span></div>
+        <div class="metric-value" id="metric-chunks">--</div>
+        <div class="metric-note">Agentic RAG 知识切片</div>
+      </article>
+      <article class="metric-card">
+        <div class="metric-top"><span class="metric-label">历史案例</span><span class="metric-icon amber"><i data-lucide="clipboard-list"></i></span></div>
+        <div class="metric-value" id="metric-cases">--</div>
+        <div class="metric-note" id="case-note">结构化停电案例</div>
+      </article>
+      <article class="metric-card">
+        <div class="metric-top"><span class="metric-label">回归评测</span><span class="metric-icon green"><i data-lucide="badge-check"></i></span></div>
+        <div class="metric-value" id="metric-questions">--</div>
+        <div class="metric-note">全覆盖知识问答题</div>
+      </article>
+    </section>
+
+    <section class="section-grid">
+      <article class="panel">
+        <div class="panel-header"><h2 class="panel-title">资料与切片构成</h2><span class="panel-subtitle">按文档类型统计</span></div>
+        <div class="panel-body"><div class="composition" id="composition"></div></div>
+      </article>
+      <article class="panel">
+        <div class="panel-header"><h2 class="panel-title">Agentic RAG 系统</h2><span class="panel-subtitle">当前生效配置</span></div>
+        <div class="panel-body">
+          <dl class="system-list">
+            <div class="system-row"><dt>检索模式</dt><dd id="system-mode">--</dd></div>
+            <div class="system-row"><dt>向量模型</dt><dd id="system-embedding">--</dd></div>
+            <div class="system-row"><dt>语义精排</dt><dd id="system-reranker">--</dd></div>
+            <div class="system-row"><dt>向量存储</dt><dd id="system-database">--</dd></div>
+          </dl>
+        </div>
+      </article>
+    </section>
+
+    <section class="panel quality-panel">
+      <div class="panel-header"><h2 class="panel-title">200 题质量评测</h2><span class="panel-subtitle" id="evaluation-version">--</span></div>
+      <div class="panel-body quality-layout">
+        <div class="retrieval-score">
+          <div class="score-kicker">检索排序表现</div>
+          <div class="score-main">MRR <span id="mrr-value">--</span></div>
+          <div class="score-row">
+            <div class="score-cell"><span>Hit@1</span><strong id="hit-1">--</strong></div>
+            <div class="score-cell"><span>Hit@3</span><strong id="hit-3">--</strong></div>
+            <div class="score-cell"><span>Hit@5</span><strong id="hit-5">--</strong></div>
+          </div>
+        </div>
+        <div class="ragas-grid" id="ragas-grid"></div>
+      </div>
+    </section>
+
+    <section class="panel inventory">
+      <div class="panel-header inventory-header">
+        <div><h2 class="panel-title">文档清单</h2></div>
+        <div class="inventory-controls">
+          <div class="search-wrap"><i data-lucide="search"></i><input id="document-search" class="search-input" type="search" placeholder="检索文档名称" aria-label="检索文档名称"></div>
+          <div class="filter-group" aria-label="文档类型筛选">
+            <button class="filter-button active" data-filter="all">全部</button>
+            <button class="filter-button" data-filter="regulation">标准规范</button>
+            <button class="filter-button" data-filter="journal">期刊论文</button>
+            <button class="filter-button" data-filter="thesis">学位论文</button>
+          </div>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>类型</th><th>文档名称</th><th class="number-cell">Chunk</th></tr></thead>
+          <tbody id="document-body"></tbody>
+        </table>
+        <div class="empty" id="empty-state" hidden>未找到匹配文档</div>
+      </div>
+      <div class="table-footer"><span id="document-count">--</span><span id="case-source">案例来源：--</span></div>
+    </section>
+
+    <footer class="footer"><span><strong>PowerScopeRAG</strong> · Agentic RAG 专业知识检索与证据服务</span><span id="evaluation-updated">评测更新：--</span></footer>
+  </main>
+
+  <script>
+    const typeLabels = { regulation: "标准规范", journal: "期刊论文", thesis: "学位论文" };
+    const ragasLabels = {
+      faithfulness: "忠实度",
+      answer_relevancy: "答案相关性",
+      context_precision: "上下文精确率",
+      context_recall: "上下文召回率",
+      answer_correctness: "答案正确性"
+    };
+    let documents = [];
+    let activeFilter = "all";
+
+    const number = value => new Intl.NumberFormat("zh-CN").format(value ?? 0);
+    const percent = value => `${((value ?? 0) * 100).toFixed(1)}%`;
+    const dateTime = value => value ? new Intl.DateTimeFormat("zh-CN", {
+      year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit"
+    }).format(new Date(value)) : "--";
+
+    function setText(id, value) { document.getElementById(id).textContent = value; }
+
+    function renderComposition(categories, totalChunks) {
+      const root = document.getElementById("composition");
+      root.replaceChildren();
+      categories.forEach(category => {
+        const row = document.createElement("div");
+        row.className = "composition-row";
+        const name = document.createElement("div");
+        name.className = "composition-name";
+        name.textContent = category.label;
+        const track = document.createElement("div");
+        track.className = "track";
+        const fill = document.createElement("div");
+        fill.className = `fill ${category.key}`;
+        fill.style.width = `${totalChunks ? category.chunks / totalChunks * 100 : 0}%`;
+        track.appendChild(fill);
+        const value = document.createElement("div");
+        value.className = "composition-value";
+        value.textContent = `${category.documents} 份 · ${number(category.chunks)} chunks`;
+        row.append(name, track, value);
+        root.appendChild(row);
+      });
+    }
+
+    function renderRagas(scores) {
+      const root = document.getElementById("ragas-grid");
+      root.replaceChildren();
+      Object.entries(ragasLabels).forEach(([key, label]) => {
+        const item = document.createElement("div");
+        item.className = "ragas-item";
+        const name = document.createElement("div");
+        name.className = "ragas-name";
+        name.textContent = label;
+        const value = document.createElement("div");
+        value.className = "ragas-value";
+        value.textContent = percent(scores?.[key]);
+        const track = document.createElement("div");
+        track.className = "ragas-track";
+        const fill = document.createElement("div");
+        fill.className = "ragas-fill";
+        fill.style.width = percent(scores?.[key]);
+        track.appendChild(fill);
+        item.append(name, value, track);
+        root.appendChild(item);
+      });
+    }
+
+    function renderDocuments() {
+      const query = document.getElementById("document-search").value.trim().toLowerCase();
+      const filtered = documents.filter(item =>
+        (activeFilter === "all" || item.type === activeFilter) &&
+        (!query || item.name.toLowerCase().includes(query))
+      );
+      const body = document.getElementById("document-body");
+      body.replaceChildren();
+      filtered.forEach(item => {
+        const row = document.createElement("tr");
+        const type = document.createElement("td");
+        const tag = document.createElement("span");
+        tag.className = `type-tag ${item.type}`;
+        tag.textContent = typeLabels[item.type] || item.type;
+        type.appendChild(tag);
+        const name = document.createElement("td");
+        name.className = "doc-name";
+        name.textContent = item.name;
+        const chunks = document.createElement("td");
+        chunks.className = "number-cell";
+        chunks.textContent = number(item.chunks);
+        row.append(type, name, chunks);
+        body.appendChild(row);
+      });
+      document.getElementById("empty-state").hidden = filtered.length > 0;
+      setText("document-count", `显示 ${filtered.length} / ${documents.length} 份文档`);
+    }
+
+    async function loadDashboard() {
+      try {
+        const response = await fetch("/dashboard-data", { cache: "no-store" });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        documents = data.documents;
+        setText("service-status", data.status === "ready" ? "服务运行中" : "索引加载中");
+        setText("metric-documents", number(data.overview.documents));
+        setText("metric-chunks", number(data.overview.chunks));
+        setText("metric-cases", number(data.overview.cases));
+        setText("metric-questions", number(data.evaluation.questions));
+        setText("case-note", "真实停电案例结构化记录");
+        setText("indexed-at", dateTime(data.system.indexed_at));
+        setText("system-mode", data.system.retrieval_mode);
+        setText("system-embedding", data.system.embedding_model);
+        setText("system-reranker", data.system.reranker_model);
+        setText("system-database", data.system.vector_database);
+        setText("evaluation-version", `${data.evaluation.label} · ${data.evaluation.questions} 题`);
+        setText("mrr-value", (data.evaluation.retrieval.mrr ?? 0).toFixed(4));
+        setText("hit-1", percent(data.evaluation.retrieval.hit_at_1));
+        setText("hit-3", percent(data.evaluation.retrieval.hit_at_3));
+        setText("hit-5", percent(data.evaluation.retrieval.hit_at_5));
+        setText("case-source", `案例来源：${data.cases.sources.join("、") || "--"}`);
+        setText("evaluation-updated", `评测更新：${dateTime(data.evaluation.updated_at)}`);
+        renderComposition(data.categories, data.overview.chunks);
+        renderRagas(data.evaluation.ragas);
+        renderDocuments();
+        document.getElementById("dashboard").classList.remove("loading");
+      } catch (error) {
+        setText("service-status", "数据加载失败");
+        document.querySelector(".status-dot").style.background = "var(--red)";
+        document.getElementById("dashboard").classList.remove("loading");
+      }
+      if (window.lucide) window.lucide.createIcons();
+    }
+
+    document.getElementById("document-search").addEventListener("input", renderDocuments);
+    document.querySelectorAll(".filter-button").forEach(button => {
+      button.addEventListener("click", () => {
+        document.querySelectorAll(".filter-button").forEach(item => item.classList.remove("active"));
+        button.classList.add("active");
+        activeFilter = button.dataset.filter;
+        renderDocuments();
+      });
+    });
+    window.addEventListener("DOMContentLoaded", loadDashboard);
+  </script>
+</body>
+</html>

@@ -146,6 +146,8 @@ def main():
                             "dense", "hybrid", "hybrid+rerank",
                             "dense+doc2query", "hybrid+doc2query",
                             "hybrid+rerank+doc2query",
+                            "hybrid+rerank+structured",
+                            "hybrid+rerank+hierarchical",
                         ],
                         help="检索模式（默认 hybrid+rerank）")
     args = parser.parse_args()

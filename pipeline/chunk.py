@@ -31,6 +31,9 @@ from langchain_text_splitters import (
     RecursiveCharacterTextSplitter,
 )
 
+ROOT = Path(__file__).parent.parent
+sys.path.insert(0, str(ROOT))
+
 from config import (
     CLEAN_DIR,
     CHUNKS_FILE,
@@ -174,6 +177,11 @@ _recursive_splitter = RecursiveCharacterTextSplitter(
 )
 
 
+def _has_searchable_text(text: str) -> bool:
+    """Reject formatting-only fragments such as Markdown table separators."""
+    return any(char.isalnum() for char in text)
+
+
 # ── Per-document chunking ─────────────────────────────────────────────────────
 
 def chunk_document(text: str, source: str, subtype: DocSubtype) -> list[dict]:
@@ -187,8 +195,8 @@ def chunk_document(text: str, source: str, subtype: DocSubtype) -> list[dict]:
     records: list[dict] = []
     for chunk in raw_chunks:
         content = chunk.page_content.strip()
-        if not content:
-            continue  # skip empty chunks from consecutive headings
+        if not _has_searchable_text(content):
+            continue  # skip empty or formatting-only chunks
 
         base_meta: dict = {
             "source": source,
@@ -206,7 +214,7 @@ def chunk_document(text: str, source: str, subtype: DocSubtype) -> list[dict]:
             # Recursively split oversized chunks; all sub-chunks share parent metadata
             for sub in _recursive_splitter.split_text(content):
                 sub = sub.strip()
-                if sub:
+                if _has_searchable_text(sub):
                     records.append({"content": sub, **base_meta})
 
     # Attach positional index within this document

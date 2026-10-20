@@ -1,8 +1,15 @@
 /data/*
 /doc/*
 /logs/*
+/WeekReport/
 /tests/reports/*
+/tests/*cache*.json
+/tests/bailian_*_scores.json
+/tests/case_eval_cases.json
+/规章制度/
 .env
 key.md
+*-apiKey-*.csv
+aliragid.txt
 __pycache__/
 *.pyc

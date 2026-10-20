@@ -1,0 +1,272 @@
+[
+  {
+    "id": "A001",
+    "category": "多源取证",
+    "query": "某400V台区配变负载率70%，低压总开关过流动作，最大相电流492.5A，电缆允许持续载流量378A。请查找过载判断依据、相关机理和相似历史案例，并计算超限幅度。",
+    "required_tools": ["search_knowledge", "search_cases", "calculate"],
+    "expected_sources": ["配电变压器烧损的故障原因分析与防范_宫瑞邦.md"],
+    "expected_sufficient": true,
+    "expected_missing_signals": []
+  },
+  {
+    "id": "A002",
+    "category": "多源取证",
+    "query": "公共连接点三相电压负序不平衡度异常时，请分别查找标准限值、异常机理和相似案例。",
+    "required_tools": ["search_knowledge", "search_cases"],
+    "expected_sources": ["15543-2008-gbt-e-300.md"],
+    "expected_sufficient": true,
+    "expected_missing_signals": []
+  },
+  {
+    "id": "A003",
+    "category": "多源取证",
+    "query": "低压台区发生整台停电且总开关保护动作，应从规程、故障机理和历史案例三个方面查找哪些证据？",
+    "required_tools": ["search_knowledge", "search_cases"],
+    "expected_sources": [],
+    "expected_sufficient": true,
+    "expected_missing_signals": []
+  },
+  {
+    "id": "A004",
+    "category": "多源取证",
+    "query": "配网抢修人员确认故障点后，查找报告预计送电时间的规程要求，并检索处置过程相近的历史案例。",
+    "required_tools": ["search_knowledge", "search_cases"],
+    "expected_sources": ["国家电网有限公司配网故障抢修管理规定.md"],
+    "expected_sufficient": true,
+    "expected_missing_signals": []
+  },
+  {
+    "id": "A005",
+    "category": "多源取证",
+    "query": "低压电缆井积水后发生停电，请查找有限空间作业规程、受潮故障机理和相似历史案例。",
+    "required_tools": ["search_knowledge", "search_cases"],
+    "expected_sources": ["国网河南省电力公司配电网工程安全文明施工标准化管理办法（试行）.md"],
+    "expected_sufficient": true,
+    "expected_missing_signals": []
+  },
+  {
+    "id": "A006",
+    "category": "多源取证",
+    "query": "分布式光伏接入后低压台区出现过电压，请查找电压限值、光伏过电压机理和相关治理案例。",
+    "required_tools": ["search_knowledge", "search_cases"],
+    "expected_sources": ["考虑分布式光伏逆变器的低压配电台区过电压自动化治理_刘阳.md"],
+    "expected_sufficient": true,
+    "expected_missing_signals": []
+  },
+  {
+    "id": "A007",
+    "category": "文档定向检索",
+    "query": "请仅在来源文件《配电变压器烧损的故障原因分析与防范_宫瑞邦.md》中查找事故负荷、最大相电流、配变负载率和低压电缆过载判断依据。",
+    "required_tools": ["search_document"],
+    "expected_sources": ["配电变压器烧损的故障原因分析与防范_宫瑞邦.md"],
+    "expected_sufficient": true,
+    "expected_missing_signals": []
+  },
+  {
+    "id": "A008",
+    "category": "文档定向检索",
+    "query": "请仅在来源文件《台区低电压及重过载研究分析_李飞.md》中查找低电压定义和20kV及以下三相供电用户的判断标准。",
+    "required_tools": ["search_document"],
+    "expected_sources": ["台区低电压及重过载研究分析_李飞.md"],
+    "expected_sufficient": true,
+    "expected_missing_signals": []
+  },
+  {
+    "id": "A009",
+    "category": "文档定向检索",
+    "query": "请仅在来源文件《基于Transformer的低压停电补全分析_王大鹏.md》中查找低压停电事件的四种类型及对应场景。",
+    "required_tools": ["search_document"],
+    "expected_sources": ["基于Transformer的低压停电补全分析_王大鹏.md"],
+    "expected_sufficient": true,
+    "expected_missing_signals": []
+  },
+  {
+    "id": "A010",
+    "category": "文档定向检索",
+    "query": "请仅在来源文件《国家电网有限公司配网故障抢修管理规定.md》中查找工单接单、故障点确认和预计送电时间报告的时限。",
+    "required_tools": ["search_document"],
+    "expected_sources": ["国家电网有限公司配网故障抢修管理规定.md"],
+    "expected_sufficient": true,
+    "expected_missing_signals": []
+  },
+  {
+    "id": "A011",
+    "category": "文档定向检索",
+    "query": "请仅在来源文件《国家电网有限公司10（20）千伏及以下配电网工程造价管理规定.md》中查找概算超过投资估算10%至20%和20%以上的处理要求。",
+    "required_tools": ["search_document"],
+    "expected_sources": ["国家电网有限公司10（20）千伏及以下配电网工程造价管理规定.md"],
+    "expected_sufficient": true,
+    "expected_missing_signals": []
+  },
+  {
+    "id": "A012",
+    "category": "文档定向检索",
+    "query": "请仅在来源文件《DB1331T+084-2024《雄安新区建筑智能配用电技术标准》.md》中查找低压直流配电系统支持的电压等级。",
+    "required_tools": ["search_document"],
+    "expected_sources": ["DB1331T+084-2024《雄安新区建筑智能配用电技术标准》.md"],
+    "expected_sufficient": true,
+    "expected_missing_signals": []
+  },
+  {
+    "id": "A013",
+    "category": "确定性计算",
+    "query": "最大相电流492.5A，允许持续载流量378A，请计算实际电流占允许值的比例和超限幅度。",
+    "required_tools": ["calculate"],
+    "expected_sources": [],
+    "expected_sufficient": true,
+    "expected_missing_signals": []
+  },
+  {
+    "id": "A014",
+    "category": "确定性计算",
+    "query": "某台区配变负载率132%，请以100%为基准计算超载幅度。",
+    "required_tools": ["calculate"],
+    "expected_sources": [],
+    "expected_sufficient": true,
+    "expected_missing_signals": []
+  },
+  {
+    "id": "A015",
+    "category": "确定性计算",
+    "query": "故障相电流560A，电缆允许载流量450A，请比较两者并计算超出百分比。",
+    "required_tools": ["calculate"],
+    "expected_sources": [],
+    "expected_sufficient": true,
+    "expected_missing_signals": []
+  },
+  {
+    "id": "A016",
+    "category": "确定性计算",
+    "query": "三相不平衡度实测值15%，控制目标为10%，请比较并计算超限幅度。",
+    "required_tools": ["calculate"],
+    "expected_sources": [],
+    "expected_sufficient": true,
+    "expected_missing_signals": []
+  },
+  {
+    "id": "A017",
+    "category": "确定性计算",
+    "query": "停电用户420户，台区总用户500户，请计算停电用户比例。",
+    "required_tools": ["calculate"],
+    "expected_sources": [],
+    "expected_sufficient": true,
+    "expected_missing_signals": []
+  },
+  {
+    "id": "A018",
+    "category": "确定性计算",
+    "query": "抢修实际到场时间110分钟，规定时限90分钟，请计算超时分钟数和超时比例。",
+    "required_tools": ["calculate"],
+    "expected_sources": [],
+    "expected_sufficient": true,
+    "expected_missing_signals": []
+  },
+  {
+    "id": "A019",
+    "category": "证据不足",
+    "query": "某400V台区全部停电，没有电流、电压、告警、保护动作和现场检查记录，请确定唯一停电原因。",
+    "required_tools": ["search_knowledge", "search_cases"],
+    "expected_sources": [],
+    "expected_sufficient": false,
+    "expected_missing_signals": ["电流", "保护动作", "现场"]
+  },
+  {
+    "id": "A020",
+    "category": "证据不足",
+    "query": "请用已确认案例证明某台区停电是配变过负荷，但当前案例库中的案例尚未经过专家确认。",
+    "required_tools": ["search_cases"],
+    "expected_sources": [],
+    "expected_sufficient": false,
+    "expected_missing_signals": ["确认"]
+  },
+  {
+    "id": "A021",
+    "category": "证据不足",
+    "query": "低压总开关发生过流动作，但没有保护整定值和动作时间，能否确认保护动作正确？",
+    "required_tools": ["search_knowledge"],
+    "expected_sources": [],
+    "expected_sufficient": false,
+    "expected_missing_signals": ["整定值", "动作时间"]
+  },
+  {
+    "id": "A022",
+    "category": "证据不足",
+    "query": "仅知道配变总负载率70%，没有三相电流和电缆型号，能否排除低压电缆过载？",
+    "required_tools": ["search_knowledge"],
+    "expected_sources": ["配电变压器烧损的故障原因分析与防范_宫瑞邦.md"],
+    "expected_sufficient": false,
+    "expected_missing_signals": ["三相电流", "电缆型号"]
+  },
+  {
+    "id": "A023",
+    "category": "证据不足",
+    "query": "某台区在雨天停电，但没有降雨量、管廊积水告警和现场绝缘检测结果，请确定是否为电缆受潮。",
+    "required_tools": ["search_knowledge", "search_cases"],
+    "expected_sources": [],
+    "expected_sufficient": false,
+    "expected_missing_signals": ["降雨量", "积水", "绝缘"]
+  },
+  {
+    "id": "A024",
+    "category": "证据不足",
+    "query": "某台区晴天中午跳闸，但没有光伏出力、功率方向和逆变器告警记录，请确定是否由光伏逆流引起。",
+    "required_tools": ["search_knowledge", "search_cases"],
+    "expected_sources": ["考虑分布式光伏逆变器的低压配电台区过电压自动化治理_刘阳.md"],
+    "expected_sufficient": false,
+    "expected_missing_signals": ["光伏出力", "功率方向", "告警"]
+  },
+  {
+    "id": "A025",
+    "category": "冲突识别",
+    "query": "两份资料分别声称同一400V场景的供电电压允许偏差为±7%和±10%，但未提供标准编号、版本和适用对象，应采用哪个值？",
+    "required_tools": ["search_knowledge"],
+    "expected_sources": ["12325-2008-gbt-e-300.md"],
+    "expected_sufficient": false,
+    "expected_missing_signals": ["标准编号", "适用对象"]
+  },
+  {
+    "id": "A026",
+    "category": "冲突识别",
+    "query": "运行记录显示配变负载率70%，现场人员据此排除过载，但单相最大电流492.5A且电缆允许载流量378A，请核验两种判断是否冲突。",
+    "required_tools": ["search_knowledge", "calculate"],
+    "expected_sources": ["配电变压器烧损的故障原因分析与防范_宫瑞邦.md"],
+    "expected_sufficient": true,
+    "expected_missing_signals": []
+  },
+  {
+    "id": "A027",
+    "category": "冲突识别",
+    "query": "论文给出的旧版条款与现行标准数值不同，但没有资料有效状态和发布日期，能否直接采用论文中的阈值？",
+    "required_tools": ["search_knowledge"],
+    "expected_sources": [],
+    "expected_sufficient": false,
+    "expected_missing_signals": ["有效状态", "发布日期"]
+  },
+  {
+    "id": "A028",
+    "category": "冲突识别",
+    "query": "相似案例判定为配变过负荷，但当前事件三相电流均未超过额定值且保护类型不同，能否直接沿用案例原因？",
+    "required_tools": ["search_knowledge", "search_cases"],
+    "expected_sources": [],
+    "expected_sufficient": false,
+    "expected_missing_signals": ["当前事件"]
+  },
+  {
+    "id": "A029",
+    "category": "冲突识别",
+    "query": "两个未核验历史案例对相同现象给出了不同最终原因，当前没有现场检查结果，应如何处理？",
+    "required_tools": ["search_cases"],
+    "expected_sources": [],
+    "expected_sufficient": false,
+    "expected_missing_signals": ["现场检查"]
+  },
+  {
+    "id": "A030",
+    "category": "冲突识别",
+    "query": "保护动作记录显示过流跳闸，抢修工单却记录人工停电，两类记录时间相同但没有原始日志，应确定哪一种原因？",
+    "required_tools": ["search_knowledge"],
+    "expected_sources": [],
+    "expected_sufficient": false,
+    "expected_missing_signals": ["原始日志"]
+  }
+]

@@ -25,6 +25,9 @@ import sys
 from pathlib import Path
 from typing import Literal
 
+ROOT = Path(__file__).parent.parent
+sys.path.insert(0, str(ROOT))
+
 from config import DOC_DIR, CLEAN_DIR
 
 DocSubtype = Literal["regulation", "journal", "thesis"]
@@ -52,14 +55,34 @@ def detect_subtype(text: str, rel_dir: str) -> DocSubtype:
 #   "1   范围" / "1 范围" / "1范围"  (plain text, various spacing)
 #   "1. 范围"  (period after number, DB1331T series)
 #   "## 1 总则"  (pymupdf4llm markdown heading)
-#   "## **2** 术语"  (bold digit in markdown)
+#   "## **2** 术语" / "## `2` 术语"  (styled digit in markdown)
 #   "## 1[范围]"  (brackets around CJK, pymupdf4llm artifact)
 _MAIN_SECTION_RE = re.compile(
-    r"^(?:#{1,3}\s+)?(?:\*{1,2})?\d{1,2}(?:\*{1,2})?[.\s]*[\[一-鿿（\(]"
+    r"^(?:#{1,3}\s+)?(?:\*{1,2}|`)?\d{1,2}(?:\*{1,2}|`)?[.\s]*[\[一-鿿（\(]"
 )
 
-# 参考文献 heading — handles spaced ("参    考    文    献") and unspaced forms
-_REF_SECTION_RE = re.compile(r"^参\s*考\s*文\s*献\s*[：:﹕]?\s*$")
+# State Grid management rules use Chinese chapter/article numbering instead of
+# GB-style numeric sections. PDF extraction often places an entire page on one
+# line, so these boundaries must be detected in the full text rather than only
+# at line starts.
+_ZH_NUMBER = "零〇一二三四五六七八九十百千万两"
+_CORPORATE_CHAPTER_RE = re.compile(rf"第[{_ZH_NUMBER}0-9]+章")
+_CORPORATE_ARTICLE_RE = re.compile(rf"第[{_ZH_NUMBER}0-9]+条")
+_CORPORATE_CHAPTER_TITLE_RE = re.compile(
+    rf"(?<![一-鿿A-Za-z0-9])"
+    rf"(第[{_ZH_NUMBER}0-9]+章)\s*"
+    rf"([^。；;\n]{{1,40}}?)"
+    rf"(?=\s*第[{_ZH_NUMBER}0-9]+条)"
+)
+_CORPORATE_ARTICLE_BOUNDARY_RE = re.compile(
+    rf"(?<![一-鿿A-Za-z0-9])(第[{_ZH_NUMBER}0-9]+条)(?=\s)"
+)
+_INLINE_PAGE_NUM_RE = re.compile(r"(?<!\d)-\s*\d{1,3}\s*-(?!\d)")
+
+# 参考文献 heading — handles Markdown, bold, spaced and unspaced forms.
+_REF_SECTION_RE = re.compile(
+    r"^(?:#{1,6}\s*)?(?:\*{1,2})?参\s*考\s*文\s*献(?:\*{1,2})?\s*[：:﹕]?\s*$"
+)
 
 # 前言 / 致谢 / 摘要 headings
 _FOREWORD_RE = re.compile(r"^前\s+言\s*$")
@@ -86,6 +109,8 @@ _META_COMBINED_RE = re.compile(r"中图分类号.{0,5}[：:].{1,30}文献标[志
 
 # Author bio block start
 _AUTHOR_BIO_RE = re.compile(r"^作者简介\s*[：:]")
+_INLINE_REF_RE = re.compile(r"参\s*考\s*文\s*献\s*[：:﹕]?")
+_REFERENCE_ITEM_RE = re.compile(r"(?m)^\s*-\s*\[[0-9０-９]+\]")
 
 # Orphaned figure / table captions (without actual image)
 _FIG_CAPTION_ZH_RE = re.compile(r"^图\s*[\w\d一-鿿．.]+")
@@ -113,6 +138,19 @@ def _is_english_parallel(line: str) -> bool:
 
 # Standalone page number (1-3 digit line)
 _PAGE_NUM_RE = re.compile(r"^\d{1,3}$")
+_DECORATED_PAGE_NUM_RE = re.compile(
+    r"^[·•∙]\s*[0-9０-９]{1,4}\s*[·•∙]$"
+)
+_PICTURE_MARKER_RE = re.compile(
+    r"(?:"
+    r"\*{0,2}\s*[=<\-]*>?\s*picture\s*\[[^\]]*\]\s*"
+    r"(?:intentionally\s+)?omitted\s*<?=?[>\-]*\s*\*{0,2}"
+    r"|"
+    r"\*{0,2}\s*-{2,}\s*(?:start|end)\s+of\s+picture\s+text\s*"
+    r"-{2,}\s*\*{0,2}(?:<br\s*/?>)?"
+    r")",
+    re.IGNORECASE,
+)
 
 # Spaced decimal notation:  "3 . 1"  →  "3.1"
 _SPACED_NUM_RE = re.compile(r"(\d)\s+\.\s+(\d)")
@@ -170,7 +208,13 @@ def clean_common(text: str) -> str:
     for line in lines:
         stripped = line.strip()
         # Standalone page numbers
-        if _PAGE_NUM_RE.match(stripped):
+        if _PAGE_NUM_RE.match(stripped) or _DECORATED_PAGE_NUM_RE.match(stripped):
+            continue
+        # OCR exports can append an end marker to the same line as a table.
+        # Remove only the marker so the recognized values remain searchable.
+        line = _PICTURE_MARKER_RE.sub("", line)
+        stripped = line.strip()
+        if not stripped:
             continue
         # Normalise "3 . 1" → "3.1"
         line = _SPACED_NUM_RE.sub(r"\1.\2", line)
@@ -192,6 +236,16 @@ def clean_regulation(text: str) -> str:
     Returns empty string with a warning comment if no main section is found
     (document is likely a cover-page-only conversion with no technical content).
     """
+    chapter = _CORPORATE_CHAPTER_RE.search(text)
+    articles = list(_CORPORATE_ARTICLE_RE.finditer(text))
+    if chapter and len(articles) >= 2:
+        # Drop cover metadata but retain the complete management-rule body.
+        text = text[chapter.start():]
+        text = _INLINE_PAGE_NUM_RE.sub("\n", text)
+        text = _CORPORATE_CHAPTER_TITLE_RE.sub(r"\n# \1 \2\n", text)
+        text = _CORPORATE_ARTICLE_BOUNDARY_RE.sub(r"\n## \1\n", text)
+        return text
+
     lines = text.splitlines()
     start = _find_first_main_section(lines)
     if start == -1:
@@ -213,19 +267,69 @@ def clean_regulation(text: str) -> str:
 
 def _journal_body_end(lines: list[str]) -> int:
     """
-    Find where the body ends: earliest of 参考文献, 收稿日期, 作者简介
-    (searched in the last 40 lines to avoid false positives mid-text).
+    Find where the body ends at the final reference section.
+
+    Author biographies and received-date lines can occur at the bottom of page
+    one in multi-page papers. They are removed as metadata, but must never
+    truncate the technical sections that continue on the next page.
     """
-    ref_idx = _find_last(lines, _REF_SECTION_RE)
+    return _find_last(lines, _REF_SECTION_RE)
 
-    tail_start = max(0, len(lines) - 40)
-    early_cut = ref_idx
-    for i in range(tail_start, len(lines)):
-        stripped = lines[i].strip()
-        if re.match(r"^收稿日期\s*[：:]", stripped) or _AUTHOR_BIO_RE.match(stripped):
-            early_cut = min(early_cut, i)
 
-    return early_cut
+def _strip_inline_reference_tail(text: str) -> str:
+    """Cut a reference section whose heading was glued to the previous line."""
+    for match in reversed(list(_INLINE_REF_RE.finditer(text))):
+        if _REFERENCE_ITEM_RE.search(text[match.end():]):
+            return text[:match.start()]
+    return text
+
+
+def _demote_sentence_fragment_heading(line: str) -> str | None:
+    """Turn page-break sentence fragments misread as headings back into text."""
+    stripped = line.strip()
+    match = re.match(r"^#{1,3}\s+(.+?)\s*$", stripped)
+    if not match:
+        return None
+    title = match.group(1).strip()
+    if title.startswith(("图", "表")):
+        return None
+    if title.endswith(("。", "！", "？", "；", ".", "!", "?", ";")):
+        return title
+    return None
+
+
+def _append_sentence_fragment(out: list[str], fragment: str) -> None:
+    """Reconnect a sentence split by a journal page number and running header."""
+    while out and not out[-1].strip():
+        out.pop()
+
+    if len(out) >= 2:
+        header = out[-1].strip()
+        page_index = len(out) - 2
+        while page_index >= 0 and not out[page_index].strip():
+            page_index -= 1
+        page_number = out[page_index].strip() if page_index >= 0 else ""
+        likely_running_header = (
+            len(header) <= 100
+            and not header.startswith("#")
+            and not header.endswith(("。", "！", "？", ".", "!", "?"))
+            and ("等" in header or re.search(r"[，,].{0,20}$", header))
+        )
+        if _DECORATED_PAGE_NUM_RE.match(page_number) and likely_running_header:
+            del out[page_index:]
+            while out and not out[-1].strip():
+                out.pop()
+
+    if out:
+        previous = out[-1].rstrip()
+        if (
+            previous
+            and not previous.startswith("#")
+            and not previous.endswith(("。", "！", "？", "；", ".", "!", "?", ";", "|"))
+        ):
+            out[-1] = previous + fragment.lstrip()
+            return
+    out.append(fragment)
 
 
 def clean_journal(text: str) -> str:
@@ -234,6 +338,7 @@ def clean_journal(text: str) -> str:
     parallel blocks, orphaned figure captions.
     Keep: 摘要, 关键词, and all numbered body sections.
     """
+    text = _strip_inline_reference_tail(text)
     lines = text.splitlines()
     body_end = _journal_body_end(lines)
     lines = lines[:body_end]
@@ -243,6 +348,11 @@ def clean_journal(text: str) -> str:
 
     for line in lines:
         stripped = line.strip()
+
+        sentence_fragment = _demote_sentence_fragment_heading(line)
+        if sentence_fragment is not None:
+            _append_sentence_fragment(out, sentence_fragment)
+            continue
 
         # ── End-of-bio block: stop skipping at blank line ──────────────────
         if skip_bio:

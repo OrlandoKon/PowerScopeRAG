@@ -21,7 +21,14 @@ CLEAN_DIR      = ROOT / "data" / "cleaned"
 CHUNKS_FILE    = ROOT / "data" / "chunks.jsonl"
 DOC2QUERY_FILE = ROOT / "data" / "doc2query.jsonl"
 DOC2QUERY_CHUNKS_FILE = ROOT / "data" / "chunks_doc2query.jsonl"
-VECTORSTORE_DIR = ROOT / "data" / "vectorstore"
+CASE_SOURCE_DIR = DOC_DIR / "cases" / "raw"
+CASE_SOURCE_FILE = CASE_SOURCE_DIR / "配网故障分析.docx"
+CASES_FILE = ROOT / "data" / "cases.jsonl"
+CASE_EVAL_FILE = ROOT / "tests" / "case_eval_cases.json"
+VECTORSTORE_DIR = Path(os.environ.get(
+    "POWERSCOPE_VECTORSTORE_DIR",
+    str(ROOT / "data" / "vectorstore_v2"),
+))
 
 # ── 分块参数 ──────────────────────────────────────────────────────────────────
 
@@ -37,7 +44,19 @@ RECURSIVE_SEPARATORS = ["\n\n", "\n", "。", "；", "，", " ", ""]
 EMBED_MODEL   = "BAAI/bge-large-zh-v1.5"   # 中文技术检索推荐模型
 EMBED_BATCH_SIZE = 64                        # 每批向量化的分块数
 COLLECTION_NAME  = "powerscoperag"           # Chroma 集合名称
+STRUCTURED_COLLECTION_NAME = "powerscoperag_structured_v4"
 DOC2QUERY_COLLECTION_NAME = "powerscoperag_doc2query"
+CASE_COLLECTION_NAME = "powerscoperag_cases"
+DEFAULT_RETRIEVAL_MODE = os.environ.get(
+    "POWERSCOPE_RETRIEVAL_MODE",
+    "hybrid+rerank+hierarchical",
+)
+if DEFAULT_RETRIEVAL_MODE.endswith(("+structured", "+hierarchical")):
+    ACTIVE_COLLECTION_NAME = STRUCTURED_COLLECTION_NAME
+elif DEFAULT_RETRIEVAL_MODE.endswith("+doc2query"):
+    ACTIVE_COLLECTION_NAME = DOC2QUERY_COLLECTION_NAME
+else:
+    ACTIVE_COLLECTION_NAME = COLLECTION_NAME
 QUERY_PREFIX  = "为这个句子生成表示以用于检索相关文章："  # BGE 查询指令前缀（仅查询时加）
 
 # 本地 embedding / reranker 运行设备。默认 auto：CUDA 可用则用 GPU，否则 CPU。
@@ -56,7 +75,10 @@ RERANK_MODEL = "BAAI/bge-reranker-v2-m3"  # Cross-encoder 精排模型
 
 DEEPSEEK_API_KEY  = os.environ.get("DEEPSEEK_API_KEY", "")
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"
-DEEPSEEK_MODEL    = "deepseek-chat"   # 实际路由到 deepseek-v4-flash
+DEEPSEEK_MODEL = os.environ.get(
+    "DEEPSEEK_MODEL",
+    "deepseek-flash",
+)  # DeepSeek-V4.1-Flash official API identifier
 
 DEFAULT_TEMPERATURE = 1.0
 DEFAULT_TOP_P       = 1.0
