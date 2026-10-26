@@ -29,10 +29,15 @@ from config import (
     DEFAULT_RETRIEVAL_MODE,
     DEFAULT_TOP_K,
     EMBED_MODEL,
+    ENABLE_ANSWER_ANCHOR,
+    ENABLE_ANSWER_SLOT_GUIDANCE,
     ROOT,
     VECTORSTORE_DIR,
 )
-from pipeline.generate import rag_answer, rag_diagnose, review_answer
+from pipeline.generate import (
+    anchor_answer, rag_answer, rag_diagnose, review_answer,
+    usable_answer_slots,
+)
 from pipeline.retrieve import initialize_retrieval, retrieve as retrieve_chunks, retrieve_with_cases
 
 # ── Shared state ──────────────────────────────────────────────────────────────
@@ -353,8 +358,15 @@ def _generate_agentic_answer(
 ) -> tuple[str, list[ChunkResult]]:
     answer_hits = assemble_planned_answer_context(query, result.model_dump(), top_k)
     answer_hits = refine_answer_context(query, answer_hits, allow_search=False)
-    answer = rag_answer(query, answer_hits)
-    answer = review_answer(query, answer_hits, answer)
+    answer_slots = usable_answer_slots(
+        answer_hits, [slot.model_dump() for slot in result.answer_slots],
+    ) if ENABLE_ANSWER_SLOT_GUIDANCE else []
+    answer = rag_answer(query, answer_hits, answer_slots=answer_slots)
+    answer = review_answer(
+        query, answer_hits, answer, answer_slots=answer_slots,
+    )
+    if ENABLE_ANSWER_ANCHOR:
+        answer = anchor_answer(query, answer_hits, answer)
     sources = [
         ChunkResult(
             content=hit["content"],

@@ -79,6 +79,12 @@ DEEPSEEK_MODEL = os.environ.get(
     "DEEPSEEK_MODEL",
     "deepseek-flash",
 )  # DeepSeek-V4.1-Flash official API identifier
+ENABLE_ANSWER_SLOT_GUIDANCE = os.environ.get(
+    "POWERSCOPE_ANSWER_SLOT_GUIDANCE", "0",
+) == "1"
+ENABLE_ANSWER_ANCHOR = os.environ.get(
+    "POWERSCOPE_ANSWER_ANCHOR", "1",
+) == "1"
 
 DEFAULT_TEMPERATURE = 1.0
 DEFAULT_TOP_P       = 1.0

@@ -20,7 +20,12 @@ from ragas.metrics.collections import (  # noqa: E402
 )
 
 from config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL  # noqa: E402
-from pipeline.generate import _format_context, _REVIEW_PROMPT  # noqa: E402
+from pipeline.generate import (  # noqa: E402
+    _format_context, _REVIEW_PROMPT, _ANCHOR_REVIEW_PROMPT,
+    _SLOT_GUIDANCE, rag_answer, review_answer,
+    usable_answer_slots,
+)
+from agentic.planner import assess_evidence  # noqa: E402
 from tests.agentic_unified_eval import _save  # noqa: E402
 from tests.ragas_eval import _build_evaluator_embeddings  # noqa: E402
 
@@ -44,6 +49,8 @@ FOCUSED_PROMPT = """你是400V低压配电网的专业问答助手。只依据�
 
 REVISION_PROMPT = _REVIEW_PROMPT
 
+ANCHORED_REVIEW_PROMPT = _ANCHOR_REVIEW_PROMPT
+
 
 def _fingerprint(question: str, hits: list[dict], prompt: str, draft: str = "") -> str:
     payload = json.dumps(
@@ -64,16 +71,17 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--ids", nargs="+")
     parser.add_argument("--phase", choices=("generate", "score", "all"), default="all")
-    parser.add_argument("--variant", choices=("focused", "revision"), default="focused")
+    parser.add_argument("--variant", choices=("focused", "revision", "slots", "anchored"), default="focused")
     args = parser.parse_args()
 
-    prompt = FOCUSED_PROMPT if args.variant == "focused" else REVISION_PROMPT
-    answer_file = ANSWER_FILE if args.variant == "focused" else (
-        ROOT / "tests" / "answer_revision_ab_answers.json"
-    )
-    score_file = SCORE_FILE if args.variant == "focused" else (
-        ROOT / "tests" / "answer_revision_ab_scores.json"
-    )
+    prompt = {"focused": FOCUSED_PROMPT, "revision": REVISION_PROMPT,
+              "slots": _SLOT_GUIDANCE, "anchored": ANCHORED_REVIEW_PROMPT}[args.variant]
+    answer_file = {"focused": ANSWER_FILE, "revision": ROOT / "tests" / "answer_revision_ab_answers.json",
+                   "slots": ROOT / "tests" / "answer_slots_ab_answers.json",
+                   "anchored": ROOT / "tests" / "answer_anchored_ab_answers.json"}[args.variant]
+    score_file = {"focused": SCORE_FILE, "revision": ROOT / "tests" / "answer_revision_ab_scores.json",
+                  "slots": ROOT / "tests" / "answer_slots_ab_scores.json",
+                  "anchored": ROOT / "tests" / "answer_anchored_ab_scores.json"}[args.variant]
 
     cases = {row["id"]: row for row in json.loads(
         (ROOT / "tests" / "test_cases_with_ref.json").read_text(encoding="utf-8")
@@ -91,27 +99,62 @@ def main() -> None:
         client = OpenAI(api_key=DEEPSEEK_API_KEY, base_url=DEEPSEEK_BASE_URL)
         for index, item_id in enumerate(selected, 1):
             row = retrieval[item_id]
-            draft = row["answer"] if args.variant == "revision" else ""
-            fingerprint = _fingerprint(cases[item_id]["question"], row["hits"], prompt, draft)
+            draft = row["answer"] if args.variant in {"revision", "anchored"} else ""
+            source_version = (
+                hashlib.sha256(b"".join(path.read_bytes() for path in (
+                    ROOT / "agentic" / "planner.py",
+                    ROOT / "pipeline" / "generate.py",
+                ))).hexdigest() if args.variant == "slots" else ""
+            )
+            fingerprint = _fingerprint(cases[item_id]["question"], row["hits"], prompt + source_version, draft)
             if answers.get(item_id, {}).get("fingerprint") == fingerprint:
                 continue
             print(f"[{index}/{len(selected)}] {item_id} generate", flush=True)
-            response = client.chat.completions.create(
-                model=DEEPSEEK_MODEL,
-                messages=[
-                    {"role": "system", "content": prompt.format(
-                        context=_format_context(row["hits"]),
-                    )},
-                    {"role": "user", "content": (
-                        json.dumps({"question": cases[item_id]["question"],
-                                    "draft": draft}, ensure_ascii=False)
-                        if args.variant == "revision" else cases[item_id]["question"]
-                    )},
-                ],
-            )
+            if args.variant == "slots":
+                result = row["result"]
+                tasks = [step["task"] for step in result.get("trace", [])]
+                assessment = assess_evidence(
+                    cases[item_id]["question"], tasks, result["evidence"],
+                    include_answer_slots=True,
+                )
+                known_ids = {hit["evidence_id"] for hit in result["evidence"]}
+                slots = [
+                    {"question_part": slot.question_part,
+                     "evidence_ids": [item_id for item_id in dict.fromkeys(slot.evidence_ids)
+                                      if item_id in known_ids]}
+                    for slot in assessment.answer_slots
+                    if "".join(slot.question_part.split()) in "".join(cases[item_id]["question"].split())
+                ]
+                slots = usable_answer_slots(row["hits"], slots)
+                if slots:
+                    response_text = rag_answer(
+                        cases[item_id]["question"], row["hits"], answer_slots=slots,
+                    )
+                    response_text = review_answer(
+                        cases[item_id]["question"], row["hits"], response_text,
+                        answer_slots=slots,
+                    )
+                else:
+                    response_text = row["answer"]
+            else:
+                response = client.chat.completions.create(
+                    model=DEEPSEEK_MODEL,
+                    messages=[
+                        {"role": "system", "content": prompt.format(
+                            context=_format_context(row["hits"]),
+                        )},
+                        {"role": "user", "content": (
+                            json.dumps({"question": cases[item_id]["question"],
+                                        "draft": draft}, ensure_ascii=False)
+                            if args.variant in {"revision", "anchored"} else cases[item_id]["question"]
+                        )},
+                    ],
+                )
+                response_text = response.choices[0].message.content
             answers[item_id] = {
                 "fingerprint": fingerprint,
-                "response": response.choices[0].message.content,
+                "response": response_text,
+                **({"answer_slots": slots} if args.variant == "slots" else {}),
             }
             _save(answer_file, answers)
 
@@ -134,9 +177,15 @@ def main() -> None:
                 case = cases[item_id]
                 hit_row = retrieval[item_id]
                 answer = answers.get(item_id)
-                draft = hit_row["answer"] if args.variant == "revision" else ""
+                draft = hit_row["answer"] if args.variant in {"revision", "anchored"} else ""
+                source_version = (
+                    hashlib.sha256(b"".join(path.read_bytes() for path in (
+                        ROOT / "agentic" / "planner.py",
+                        ROOT / "pipeline" / "generate.py",
+                    ))).hexdigest() if args.variant == "slots" else ""
+                )
                 if not answer or answer.get("fingerprint") != _fingerprint(
-                    case["question"], hit_row["hits"], prompt, draft,
+                    case["question"], hit_row["hits"], prompt + source_version, draft,
                 ):
                     raise RuntimeError(f"{item_id} 缺少当前提示词的答案")
                 fingerprint = hashlib.sha256(json.dumps(
@@ -148,7 +197,7 @@ def main() -> None:
                 row_scores = dict(cached.get("scores", {})) if cached.get(
                     "fingerprint",
                 ) == fingerprint else {}
-                if args.variant == "revision" and answer["response"] == draft:
+                if args.variant in {"revision", "slots", "anchored"} and answer["response"] == hit_row["answer"]:
                     row_scores = {
                         name: baseline[item_id]["scores"][name] for name in METRICS
                     }
@@ -187,20 +236,22 @@ def main() -> None:
         candidate_rows = [scores[item_id]["scores"] for item_id in selected]
         report = {
             "questions": len(selected),
+            "sample_ids": selected,
             "baseline": _average(baseline_rows),
             args.variant: _average(candidate_rows),
             "changed_answers": sum(
                 answers[item_id]["response"] != retrieval[item_id]["answer"]
                 for item_id in selected
-            ) if args.variant == "revision" else None,
+            ) if args.variant in {"revision", "slots", "anchored"} else None,
             "model": DEEPSEEK_MODEL,
+            "triggered": sum(bool(answers[item_id].get("answer_slots")) for item_id in selected)
+            if args.variant == "slots" else None,
             "comparison": "Same questions and retrieved contexts; unchanged answers reuse baseline scores.",
         }
         print(json.dumps(report, ensure_ascii=False, indent=2))
-        if len(selected) == len(cases):
-            report_file = ROOT / "tests" / "reports" / f"answer_{args.variant}_ab_200.json"
-            _save(report_file, report)
-            print(f"报告：{report_file}")
+        report_file = ROOT / "tests" / "reports" / f"answer_{args.variant}_ab_{len(selected)}.json"
+        _save(report_file, report)
+        print(f"报告：{report_file}")
 
 
 if __name__ == "__main__":

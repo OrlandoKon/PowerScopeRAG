@@ -6,6 +6,7 @@ from agentic.planner import _constrain_initial_tasks, assess_evidence, plan_retr
 from agentic.evidence_rules import enforce_evidence_rules
 from agentic.schemas import (
     CalculationSpec,
+    AnswerSlot,
     Evidence,
     EvidenceAssessment,
     RetrievalPlan,
@@ -37,6 +38,14 @@ def _knowledge_hit(source="标准.md", chunk_idx=1):
 
 
 class AgenticOrchestratorTests(unittest.TestCase):
+    @patch("agentic.planner.complete_json")
+    def test_answer_slot_assessment_prompt_is_opt_in(self, complete_json):
+        complete_json.return_value = {"sufficient": False}
+        assess_evidence("测试问题", [], [], include_answer_slots=False)
+        self.assertNotIn("answer_slots", complete_json.call_args.args[0])
+        assess_evidence("测试问题", [], [], include_answer_slots=True)
+        self.assertIn("answer_slots", complete_json.call_args.args[0])
+
     def test_governance_question_without_standard_name_uses_all_knowledge(self):
         task = _task(lane="regulation")
 
@@ -60,10 +69,18 @@ class AgenticOrchestratorTests(unittest.TestCase):
                 sufficient=True,
                 reason="E1直接给出了判断依据",
                 answer_evidence_ids=["E1", "E99", "E1"],
+                answer_slots=[
+                    AnswerSlot(question_part="如何判断", evidence_ids=["E1", "E99", "E1"]),
+                    AnswerSlot(question_part="无关子项", evidence_ids=["E1"]),
+                ],
             ),
         )
 
         self.assertEqual(["E1"], result.answer_evidence_ids)
+        self.assertEqual(
+            [AnswerSlot(question_part="如何判断", evidence_ids=["E1"])],
+            result.answer_slots,
+        )
 
     def test_follow_up_does_not_search_cases_for_document_fact_question(self):
         plan = RetrievalPlan(known_facts=[], missing_data=[], tasks=[_task()])

@@ -64,12 +64,18 @@ class Evidence(BaseModel):
     calculation: dict | None = None
 
 
+class AnswerSlot(BaseModel):
+    question_part: str = Field(min_length=1, max_length=300)
+    evidence_ids: list[str] = Field(default_factory=list, max_length=5)
+
+
 class EvidenceAssessment(BaseModel):
     sufficient: bool
     reason: str = ""
     missing_data: list[str] = Field(default_factory=list, max_length=20)
     conflicts: list[str] = Field(default_factory=list, max_length=20)
     answer_evidence_ids: list[str] = Field(default_factory=list, max_length=5)
+    answer_slots: list[AnswerSlot] = Field(default_factory=list, max_length=8)
     follow_up_tasks: list[RetrievalTask] = Field(default_factory=list, max_length=4)
 
 
@@ -96,6 +102,7 @@ class AgenticRetrievalResult(BaseModel):
     missing_data: list[str]
     conflicts: list[str]
     answer_evidence_ids: list[str] = Field(default_factory=list)
+    answer_slots: list[AnswerSlot] = Field(default_factory=list)
     coverage: list[EvidenceCoverage] = Field(default_factory=list)
     validation_issues: list[str] = Field(default_factory=list)
     rounds_completed: int

@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from agentic.schemas import (
     AgenticRetrievalResult,
+    AnswerSlot,
     Evidence,
     RetrievalTask,
     TraceStep,
@@ -26,6 +27,35 @@ def _result() -> AgenticRetrievalResult:
 
 
 class RagApiTests(unittest.TestCase):
+    def test_slot_guidance_is_opt_in(self):
+        result = _result().model_copy(update={"answer_slots": [
+            AnswerSlot(question_part="第一项", evidence_ids=["E1"]),
+            AnswerSlot(question_part="第二项", evidence_ids=["E2"]),
+        ]})
+        hits = [
+            {"evidence_id": "E1", "source": "标准.md", "content": "第一项"},
+            {"evidence_id": "E2", "source": "标准.md", "content": "第二项"},
+        ]
+        with patch("api.assemble_planned_answer_context", return_value=hits), patch(
+            "api.refine_answer_context", return_value=hits,
+        ), patch("api.rag_answer", return_value="答案") as generation, patch(
+            "api.review_answer", return_value="答案",
+        ), patch("api.ENABLE_ANSWER_SLOT_GUIDANCE", False), patch(
+            "api.ENABLE_ANSWER_ANCHOR", False,
+        ):
+            _generate_agentic_answer("第一项和第二项", result, 5)
+        self.assertEqual([], generation.call_args.kwargs["answer_slots"])
+
+        with patch("api.assemble_planned_answer_context", return_value=hits), patch(
+            "api.refine_answer_context", return_value=hits,
+        ), patch("api.rag_answer", return_value="答案") as generation, patch(
+            "api.review_answer", return_value="答案",
+        ), patch("api.ENABLE_ANSWER_SLOT_GUIDANCE", True), patch(
+            "api.ENABLE_ANSWER_ANCHOR", False,
+        ):
+            _generate_agentic_answer("第一项和第二项", result, 5)
+        self.assertEqual(2, len(generation.call_args.kwargs["answer_slots"]))
+
     def test_answer_generation_uses_only_planned_evidence(self):
         result = _result().model_copy(update={
             "evidence": [Evidence(
@@ -45,14 +75,16 @@ class RagApiTests(unittest.TestCase):
             "agentic.assembly._original_chunks", return_value={},
         ), patch("api.rag_answer", return_value="378A") as generation, patch(
             "api.review_answer", return_value="允许载流量378A"
-        ) as review:
+        ) as review, patch("api.anchor_answer", return_value="电缆允许载流量378A") as anchor:
             answer, sources = _generate_agentic_answer("允许载流量是多少？", result, 5)
 
-        self.assertEqual("允许载流量378A", answer)
+        self.assertEqual("电缆允许载流量378A", answer)
         self.assertEqual(["标准.md"], [item.source for item in sources])
         self.assertEqual(1, len(generation.call_args.args[1]))
         review.assert_called_once()
         self.assertEqual("378A", review.call_args.args[2])
+        anchor.assert_called_once()
+        self.assertEqual("允许载流量378A", anchor.call_args.args[2])
         ordinary_search.assert_not_called()
 
     def test_public_schema_has_one_business_endpoint(self):

@@ -37,6 +37,22 @@ _REVIEW_PROMPT = """你是电力知识库问答的答案校验编辑。只能依
 知识库参考片段：
 {context}"""
 
+_ANCHOR_REVIEW_PROMPT = """你是电力知识库问答的证据校验编辑。只能依据参考片段修订草稿，不得使用外部知识。
+
+先逐项定位参考片段中直接回答问题的原文，核对所属对象、场景、条件和数值；只输出最终答案：
+1. 答案应能脱离原问题独立阅读：在直接结论中自然写明必要的研究对象、设备或业务场景。不要照抄整个问句。
+2. 对多子项问题，逐项保留对应的对象和条件；补齐草稿遗漏但原文直接支持的子项。
+3. 草稿已有正确的数值、单位、限制条件时原样保留。不得跨来源或跨适用范围迁移数值；严格保留“可、应、宜、不得、已”等语气，不能把建议或可能性写成实际发生的事实。
+4. 删去未被问及的背景、推测、重复解释和来源清单。只有确无直接证据的子项才简短说明不足，其他子项照常作答。
+5. 不输出核对过程；若草稿已经完整、准确且自洽，原样输出。
+
+知识库参考片段：
+{context}"""
+
+_SLOT_GUIDANCE = """\n问题子项与对应证据（编号对应下方参考片段）：
+{slots}
+请按这些子项顺序直接作答。每项只用对应证据支持的事实；空证据的子项简短说明不足，不要整题拒答。若证据与题设对象或适用条件不一致，以片段实际适用范围为准，不要迁移数值。"""
+
 _DIAGNOSIS_SYSTEM_PROMPT = """你是一个专业的400V低压配电网停电原因分析助手。
 
 你会收到两类证据：
@@ -103,10 +119,43 @@ def _format_cases(cases: list[dict]) -> str:
     return "\n\n---\n\n".join(parts)
 
 
+def _format_answer_slots(chunks: list[dict], answer_slots: list[dict] | None) -> str:
+    if not answer_slots:
+        return ""
+    positions = {
+        hit["evidence_id"]: index
+        for index, hit in enumerate(chunks, 1) if hit.get("evidence_id")
+    }
+    lines = []
+    for slot in answer_slots:
+        ids = list(dict.fromkeys(slot.get("evidence_ids", [])))
+        numbers = [positions[item_id] for item_id in ids if item_id in positions]
+        lines.append(f"- {slot['question_part']}：" + (
+            "参考片段 " + "、".join(f"[{number}]" for number in numbers)
+            if numbers else "当前片段无直接依据"
+        ))
+    return _SLOT_GUIDANCE.format(slots="\n".join(lines)) if lines else ""
+
+
+def usable_answer_slots(
+    chunks: list[dict], answer_slots: list[dict] | None,
+) -> list[dict]:
+    """Apply slot guidance only when every part has evidence in the final context."""
+    if not answer_slots or len(answer_slots) < 2:
+        return []
+    selected_ids = {hit.get("evidence_id") for hit in chunks}
+    if any(not selected_ids.intersection(slot.get("evidence_ids", []))
+           for slot in answer_slots):
+        return []
+    return answer_slots
+
+
 def rag_answer(
     query: str,
     chunks: list[dict],
     stream: bool = False,
+    *,
+    answer_slots: list[dict] | None = None,
 ) -> str:
     """
     Generate an answer grounded in the retrieved chunks.
@@ -122,6 +171,7 @@ def rag_answer(
     client = _get_client()
     context = _format_context(chunks)
     system = _SYSTEM_PROMPT.format(context=context)
+    system += _format_answer_slots(chunks, answer_slots)
 
     if stream:
         resp = client.chat.completions.create(
@@ -150,7 +200,10 @@ def rag_answer(
         return resp.choices[0].message.content
 
 
-def review_answer(query: str, chunks: list[dict], draft: str) -> str:
+def review_answer(
+    query: str, chunks: list[dict], draft: str,
+    *, answer_slots: list[dict] | None = None,
+) -> str:
     """Revise a generated answer against the same evidence, preserving it on failure."""
     if not draft.strip() or not chunks:
         return draft
@@ -161,7 +214,7 @@ def review_answer(query: str, chunks: list[dict], draft: str) -> str:
             messages=[
                 {"role": "system", "content": _REVIEW_PROMPT.format(
                     context=_format_context(chunks),
-                )},
+                ) + _format_answer_slots(chunks, answer_slots)},
                 {"role": "user", "content": json.dumps(
                     {"question": query, "draft": draft}, ensure_ascii=False,
                 )},
@@ -169,6 +222,29 @@ def review_answer(query: str, chunks: list[dict], draft: str) -> str:
         )
     except Exception:
         _logger.exception("Answer review failed; returning original draft")
+        return draft
+    return (resp.choices[0].message.content or "").strip() or draft
+
+
+def anchor_answer(query: str, chunks: list[dict], draft: str) -> str:
+    """Make a reviewed answer self-contained without changing its evidence scope."""
+    if not draft.strip() or not chunks:
+        return draft
+    try:
+        resp = _get_client().chat.completions.create(
+            model=DEEPSEEK_MODEL,
+            timeout=30,
+            messages=[
+                {"role": "system", "content": _ANCHOR_REVIEW_PROMPT.format(
+                    context=_format_context(chunks),
+                )},
+                {"role": "user", "content": json.dumps(
+                    {"question": query, "draft": draft}, ensure_ascii=False,
+                )},
+            ],
+        )
+    except Exception:
+        _logger.exception("Answer anchoring failed; returning reviewed draft")
         return draft
     return (resp.choices[0].message.content or "").strip() or draft
 

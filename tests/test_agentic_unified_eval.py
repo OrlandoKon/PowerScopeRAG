@@ -37,6 +37,34 @@ class UnifiedEvalTests(unittest.TestCase):
                 _retrieve([case], cache, "http://test", "new", refresh=True)
             self.assertEqual(expected_answer, cache["Q1"].get("answer"))
 
+    def test_end_to_end_uses_interface_answer_and_resumes(self):
+        case = {"id": "Q1", "question": "电缆载流量是多少？"}
+        hits = [{"source": "标准.md", "content": "允许载流量378A"}]
+        response = MagicMock()
+        response.json.return_value = {
+            "answer": "允许载流量为378A。", "sources": hits, "trace": [],
+        }
+        client = MagicMock()
+        client.__enter__.return_value = client
+        client.post.return_value = response
+        cache = {}
+
+        with patch("tests.agentic_unified_eval.httpx.Client", return_value=client), patch(
+            "tests.agentic_unified_eval._save",
+        ) as save:
+            _retrieve([case], cache, "http://test", "current", generate_answer=True)
+            _retrieve([case], cache, "http://test", "current", generate_answer=True)
+
+        self.assertEqual("允许载流量为378A。", cache["Q1"]["answer"])
+        self.assertEqual(hits, cache["Q1"]["hits"])
+        self.assertEqual(
+            _answer_fingerprint(case["question"], hits),
+            cache["Q1"]["answer_fingerprint"],
+        )
+        self.assertTrue(client.post.call_args.kwargs["json"]["generate_answer"])
+        client.post.assert_called_once()
+        save.assert_called_once()
+
     def test_reassemble_reuses_trace_and_invalidates_old_answer(self):
         case = {"id": "Q1", "question": "允许载流量是多少？"}
         cache = {"Q1": {

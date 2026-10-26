@@ -9,6 +9,7 @@ from agentic.evidence_rules import enforce_evidence_rules
 from agentic.planner import assess_evidence, plan_retrieval, requests_case_evidence
 from agentic.schemas import (
     AgenticRetrievalResult,
+    AnswerSlot,
     Evidence,
     EvidenceAssessment,
     EvidenceCoverage,
@@ -182,6 +183,16 @@ def run_agentic_retrieval(
             for i, task in enumerate(assessment.follow_up_tasks, 1)
         ][:4]
 
+    known_ids = {item.evidence_id for item in evidence}
+    answer_slots = [
+        AnswerSlot(
+            question_part=slot.question_part,
+            evidence_ids=[item_id for item_id in dict.fromkeys(slot.evidence_ids)
+                          if item_id in known_ids],
+        )
+        for slot in assessment.answer_slots
+        if "".join(slot.question_part.split()) in "".join(query.split())
+    ]
     return AgenticRetrievalResult(
         query=query,
         model=DEEPSEEK_MODEL,
@@ -193,8 +204,9 @@ def run_agentic_retrieval(
         conflicts=assessment.conflicts,
         answer_evidence_ids=[
             item_id for item_id in dict.fromkeys(assessment.answer_evidence_ids)
-            if item_id in {item.evidence_id for item in evidence}
+            if item_id in known_ids
         ][:5],
+        answer_slots=answer_slots,
         coverage=coverage,
         validation_issues=validation_issues,
         rounds_completed=max((step.round for step in trace), default=0),

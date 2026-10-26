@@ -30,6 +30,8 @@ from tests.ragas_eval import _build_evaluator_embeddings, ragas_score  # noqa: E
 CASES_FILE = ROOT / "tests" / "test_cases_with_ref.json"
 CACHE_FILE = ROOT / "tests" / "agentic_unified_cache.json"
 SCORE_FILE = ROOT / "tests" / "agentic_unified_ragas_scores.json"
+END_TO_END_CACHE_FILE = ROOT / "tests" / "agentic_end_to_end_cache.json"
+END_TO_END_SCORE_FILE = ROOT / "tests" / "agentic_end_to_end_ragas_scores.json"
 REPORTS_DIR = ROOT / "tests" / "reports"
 SOURCE_FILES = [
     ROOT / "api.py",
@@ -104,6 +106,7 @@ def _summary(cases: list[dict], cache: dict, fingerprint: str) -> dict:
 def _retrieve(
     cases: list[dict], cache: dict, base_url: str, fingerprint: str,
     refresh: bool = False,
+    *, generate_answer: bool = False, cache_file: Path = CACHE_FILE,
 ) -> None:
     timeout = httpx.Timeout(180.0, connect=10.0)
     with httpx.Client(base_url=base_url, timeout=timeout, trust_env=False) as client:
@@ -111,9 +114,14 @@ def _retrieve(
             row = cache.get(case["id"], {})
             if (not refresh and row.get("fingerprint") == fingerprint
                     and row.get("question") == case["question"]
-                    and row.get("hits") is not None):
+                    and row.get("hits") is not None
+                    and (not generate_answer or (
+                        row.get("answer") and row.get("answer_fingerprint")
+                        == _answer_fingerprint(case["question"], row["hits"])
+                    ))):
                 continue
-            print(f"[{index}/{len(cases)}] {case['id']} retrieval", flush=True)
+            phase = "end-to-end" if generate_answer else "retrieval"
+            print(f"[{index}/{len(cases)}] {case['id']} {phase}", flush=True)
             try:
                 payload = {
                     "query": case["question"],
@@ -121,7 +129,7 @@ def _retrieve(
                     "knowledge_top_k": 5,
                     "case_top_k": 3,
                     "include_trace": True,
-                    "generate_answer": False,
+                    "generate_answer": generate_answer,
                 }
                 for attempt in range(3):
                     try:
@@ -137,17 +145,27 @@ def _retrieve(
                             raise
                         time.sleep(2 * (attempt + 1))
                 result = response.json()
-                hits = assemble_planned_answer_context(case["question"], result)
-                hits = refine_answer_context(
-                    case["question"], hits, allow_search=False,
-                )
+                if generate_answer:
+                    hits = result.get("sources") or []
+                    if not hits or not result.get("answer"):
+                        raise RuntimeError("完整问答接口未返回答案或证据")
+                else:
+                    hits = assemble_planned_answer_context(case["question"], result)
+                    hits = refine_answer_context(
+                        case["question"], hits, allow_search=False,
+                    )
                 updated = {
                     "fingerprint": fingerprint,
                     "question": case["question"],
                     "hits": hits,
                     "result": result,
                 }
-                if (row.get("question") == case["question"]
+                if generate_answer:
+                    updated["answer"] = result["answer"]
+                    updated["answer_fingerprint"] = _answer_fingerprint(
+                        case["question"], hits,
+                    )
+                elif (row.get("question") == case["question"]
                         and _answer_context_signature(row.get("hits"))
                         == _answer_context_signature(hits)
                         and row.get("answer")):
@@ -161,9 +179,9 @@ def _retrieve(
                     "question": case["question"],
                     "error": f"{type(exc).__name__}: {exc}",
                 }
-                _save(CACHE_FILE, cache)
+                _save(cache_file, cache)
                 raise
-            _save(CACHE_FILE, cache)
+            _save(cache_file, cache)
 
 
 def _reassemble(cases: list[dict], cache: dict, fingerprint: str) -> None:
@@ -202,7 +220,10 @@ def _generate(cases: list[dict], cache: dict, fingerprint: str) -> None:
         _save(CACHE_FILE, cache)
 
 
-def _ragas(cases: list[dict], cache: dict, fingerprint: str) -> dict:
+def _ragas(
+    cases: list[dict], cache: dict, fingerprint: str,
+    score_file: Path = SCORE_FILE,
+) -> dict:
     from openai import AsyncOpenAI
     from ragas.evaluation import llm_factory
 
@@ -228,7 +249,7 @@ def _ragas(cases: list[dict], cache: dict, fingerprint: str) -> dict:
         extra_body={"thinking": {"type": "disabled"}},
     )
     summary, per_row = ragas_score(
-        rows, evaluator, _build_evaluator_embeddings(), SCORE_FILE,
+        rows, evaluator, _build_evaluator_embeddings(), score_file,
     )
     metrics = (
         "faithfulness", "answer_relevancy", "context_precision",
@@ -250,7 +271,7 @@ def _ragas(cases: list[dict], cache: dict, fingerprint: str) -> dict:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--phase", choices=(
-        "retrieval", "reassemble", "generation", "ragas", "all",
+        "retrieval", "reassemble", "generation", "ragas", "all", "end-to-end",
     ),
                         default="retrieval")
     parser.add_argument("--ids", nargs="*")
@@ -267,19 +288,27 @@ def main() -> None:
         cases = cases[:args.limit]
     if not cases:
         parser.error("没有匹配的测试题")
-    cache = json.loads(CACHE_FILE.read_text(encoding="utf-8")) if CACHE_FILE.exists() else {}
+    end_to_end = args.phase == "end-to-end"
+    cache_file = END_TO_END_CACHE_FILE if end_to_end else CACHE_FILE
+    score_file = END_TO_END_SCORE_FILE if end_to_end else SCORE_FILE
+    cache = json.loads(cache_file.read_text(encoding="utf-8")) if cache_file.exists() else {}
     fingerprint = _fingerprint()
-    if args.phase in {"retrieval", "all"}:
-        _retrieve(cases, cache, args.base_url, fingerprint, refresh=args.refresh)
+    if args.phase in {"retrieval", "all", "end-to-end"}:
+        _retrieve(
+            cases, cache, args.base_url, fingerprint,
+            refresh=args.refresh, generate_answer=end_to_end,
+            cache_file=cache_file,
+        )
     if args.phase == "reassemble":
         _reassemble(cases, cache, fingerprint)
     if args.phase in {"generation", "all"}:
         _generate(cases, cache, fingerprint)
     report = {"retrieval": _summary(cases, cache, fingerprint)}
-    if args.phase in {"ragas", "all"}:
-        report["ragas"] = _ragas(cases, cache, fingerprint)
+    if args.phase in {"ragas", "all", "end-to-end"}:
+        report["ragas"] = _ragas(cases, cache, fingerprint, score_file)
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
-    path = REPORTS_DIR / f"agentic_unified_{datetime.now():%Y%m%d_%H%M%S}.json"
+    name = "agentic_end_to_end" if end_to_end else "agentic_unified"
+    path = REPORTS_DIR / f"{name}_{datetime.now():%Y%m%d_%H%M%S}.json"
     _save(path, report)
     print(json.dumps(report, ensure_ascii=False, indent=2))
     print(f"报告：{path}")

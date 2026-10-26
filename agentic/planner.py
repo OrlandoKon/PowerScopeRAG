@@ -5,6 +5,7 @@ import re
 
 from pydantic import ValidationError
 
+from config import ENABLE_ANSWER_SLOT_GUIDANCE
 from agentic.llm import complete_json
 from agentic.schemas import RetrievalPlan, RetrievalTask
 
@@ -190,6 +191,19 @@ follow_up_tasks最多4个，不得反复使用已经执行过的查询。
 {"sufficient":true,"reason":"...","missing_data":["..."],"conflicts":["..."],"answer_evidence_ids":["E1"],"follow_up_tasks":[{"task_id":"F1","goal":"...","query":"...","tool":"search_document","lane":"all","source":"来源.md","calculation":null}]}。
 """
 
+_FOLLOW_UP_PROMPT_WITH_SLOTS = _FOLLOW_UP_PROMPT.replace(
+    "\n可用工具为search_knowledge",
+    "\n6. answer_slots按原问题的明确子项逐项列出，question_part尽量原文摘录，"
+    "evidence_ids只列能直接支持该子项的证据编号；未找到直接依据时用空数组。"
+    "不要把同主题、不同对象/适用条件的证据当作支持。\n"
+    "\n可用工具为search_knowledge",
+).replace(
+    '"answer_evidence_ids":["E1"],"follow_up_tasks"',
+    '"answer_evidence_ids":["E1"],"answer_slots":['
+    '{"question_part":"原问题中的一个子项","evidence_ids":["E1"]}'
+    '],"follow_up_tasks"',
+)
+
 
 def assessment_payload(
     query: str,
@@ -213,16 +227,22 @@ def assessment_payload(
     )
 
 
-def assess_evidence(query: str, tasks: list[dict], evidence: list[dict]):
+def assess_evidence(
+    query: str, tasks: list[dict], evidence: list[dict],
+    *, include_answer_slots: bool | None = None,
+):
     from agentic.schemas import EvidenceAssessment
 
+    if include_answer_slots is None:
+        include_answer_slots = ENABLE_ANSWER_SLOT_GUIDANCE
+    prompt = _FOLLOW_UP_PROMPT_WITH_SLOTS if include_answer_slots else _FOLLOW_UP_PROMPT
     payload = assessment_payload(query, tasks, evidence)
-    raw = _normalize_tasks(complete_json(_FOLLOW_UP_PROMPT, payload))
+    raw = _normalize_tasks(complete_json(prompt, payload))
     try:
         return EvidenceAssessment.model_validate(raw)
     except ValidationError:
         repair_prompt = (
-            _FOLLOW_UP_PROMPT
+            prompt
             + "\n上一份JSON不符合工具结构。请重新输出完整JSON；"
             "calculate任务的calculation必须是含operation、left_value、"
             "right_value等字段的对象，不能是算式字符串。"

@@ -4,6 +4,11 @@
 /WeekReport/
 /tests/reports/*
 /tests/*cache*.json
+/tests/answer_slots_ab_answers.json
+/tests/answer_slots_ab_scores.json
+/tests/answer_anchored_ab_answers.json
+/tests/answer_anchored_ab_scores.json
+/tests/agentic_end_to_end_ragas_scores.json
 /tests/bailian_*_scores.json
 /tests/case_eval_cases.json
 /规章制度/
@@ -11,5 +16,9 @@
 key.md
 *-apiKey-*.csv
 aliragid.txt
+*.pdf
+*.PDF
+*.zip
+*.7z
 __pycache__/
 *.pyc
